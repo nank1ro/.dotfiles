@@ -3,6 +3,8 @@
 
 local M = {}
 
+local userPlugins = require "custom.plugins"
+
 -- make sure you maintain the structure of `core/default_config.lua` here,
 -- example of changing theme:
 
@@ -19,9 +21,10 @@ M.options = {
 }
 
 M.plugins = {
+  install = userPlugins,
   default_plugin_remove = {
-    "L3MON4D3/LuaSnip",
-    "saadparwaiz1/cmp_luasnip"
+ --   "L3MON4D3/LuaSnip",
+   -- "saadparwaiz1/cmp_luasnip"
   },
   default_plugin_config_replace = {
     telescope = "custom.telescope"
@@ -30,14 +33,15 @@ M.plugins = {
     dashboard = true,
     nvimtree = true,
     snippets = true,
+    alpha = true,
   },
-  -- options = {
-  --   luasnip = {
-  --      snippet_path = {
-  --        "/Users/alex/.config/nvim/lua/custom/my_snippets"
-  --      },
-  --   },
-  -- }
+  options = {
+    luasnip = {
+       snippet_path = {
+         "/Users/alex/.config/nvim/lua/custom/my_snippets/"
+       },
+    },
+  }
   -- options = {
   --     lspconfig = {
   --        setup_lspconf = "custom.plugins.lspconfig",
