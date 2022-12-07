@@ -3,7 +3,8 @@ return {
     override_options = {
       ensure_installed = {
         -- lua stuff
-        "lua-language-server", -- lsp "stylua", -- formatter
+        "lua-language-server", -- lsp
+        "stylua", -- formatter
 
         -- web dev stuff
         "css-lsp", -- lsp
