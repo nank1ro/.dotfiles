@@ -22,3 +22,10 @@ api.nvim_create_autocmd("BufEnter", {
   group = nvimTreeHighlightGroup,
 })
 
+
+-- Autoformats a Dart file before saving
+local nvimDartAutoFormat = api.nvim_create_augroup("AutoFormatDart", { clear = true })
+api.nvim_create_autocmd("BufWritePre *.dart", {
+  command = "silent! :lua vim.lsp.buf.format()",
+  group = nvimDartAutoFormat,
+})
