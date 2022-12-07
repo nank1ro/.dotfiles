@@ -44,27 +44,7 @@ return {
       require "plugins.configs.lspconfig"
       require "custom.plugins.lspconfig"
     end,
-    -- setup = function ()
-    --   require("custom.plugins.lspconfig").setup()
-    -- end,
   },
-  -- ["akinsho/pubspec-assist.nvim"] = {
-  --   requires = { "nvim-lua/plenary.nvim", module = "plenary" },
-  --   rocks = {
-  --     {
-  --       "lyaml",
-  --       server = "http://rocks.moonscript.org",
-  --       -- If using macOS or Ubuntu, you may need to install the `libyaml` package.
-  --       -- if you install libyaml with homebrew you will need to set the YAML_DIR
-  --       -- to the location of the homebrew installation of libyaml e.g.
-  --       env = { YAML_DIR = '/opt/homebrew/Cellar/libyaml/0.2.5/' },
-  --     },
-  --   },
-  --   config = function()
-  --     require("pubspec-assist").setup()
-  --   end,
-  --   event = { "BufRead pubspec.yaml" },
-  -- },
   ["gbprod/yanky.nvim"] = {
     before = "nvim-telescope/telescope.nvim",
     config = function()
@@ -91,30 +71,6 @@ return {
     end,
   },
   ["Rasukarusan/nvim-select-multi-line"] = {},
-  -- ["akinsho/flutter-tools.nvim"] = {
-  --   requires = 'nvim-lua/plenary.nvim',
-  --   as = 'flutter-tools',
-  --   setup = function()
-  --     require("flutter-tools").setup{
-  --       lsp = {
-  --         on_attach = require("plugins.configs.lspconfig").on_attach,
-  --         capabilities = require("plugins.configs.lspconfig").capabilities,
-  --       }
-  --     }
-  --   end
-  -- }
-  -- ["/Users/alexandrumariuti/.config/nvim/lua/custom/plugins/flutter-tools.nvim"] = {
-  --   requires = 'nvim-lua/plenary.nvim',
-  --   as = 'flutter-tools',
-  --   setup = function()
-  --    require("flutter-tools").setup {}
-  --   end
-  -- }
-
-  -- ["nvim-telescope/telescope.nvim"] = {
-  --   after = "gbprod/yanky.nvim",
-  --   extensions_list = { "yank_history" },
-  -- },
   -- file managing , picker etc
   ["kyazdani42/nvim-tree.lua"] = {
     override_options = {
