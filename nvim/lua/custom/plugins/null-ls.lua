@@ -21,6 +21,8 @@ local sources = {
   b.formatting.ktlint,
   -- "javascript", "javascriptreact", "typescript", "typescriptreact", "vue", "css", "scss", "less", "html", "json", "jsonc", "yaml", "markdown", "markdown.mdx", "graphql", "handlebars"
   b.formatting.prettier,
+  -- Go (aka Golang)
+  b.formatting.gofmt,
 }
 
 null_ls.setup {
