@@ -1,16 +1,4 @@
--- This is an example chadrc file , its supposed to be placed in /lua/custom dir
--- lua/custom/chadrc.lua
-
 local M = {}
-
-local userPlugins = require "custom.plugins"
-
--- make sure you maintain the structure of `core/default_config.lua` here,
--- example of changing theme:
-
-M.ui = {
-   theme = "gruvchad",
-}
 
 M.options = {
   relativenumber = true,
@@ -18,35 +6,17 @@ M.options = {
   splitbelow = true,
   -- Vertical splits will automatically be to the right
   splitright = true,
+  shiftwidth = 2,
+  tabstop = 2,
+  softtabstop = 2,
 }
 
-M.plugins = {
-  install = userPlugins,
-  default_plugin_remove = {
- --   "L3MON4D3/LuaSnip",
-   -- "saadparwaiz1/cmp_luasnip"
-  },
-  default_plugin_config_replace = {
-    telescope = "custom.telescope"
-  },
-  status = {
-    dashboard = true,
-    nvimtree = true,
-    snippets = true,
-    alpha = true,
-  },
-  options = {
-    luasnip = {
-       snippet_path = {
-         "/Users/alex/.config/nvim/lua/custom/my_snippets/"
-       },
-    },
-  }
-  -- options = {
-  --     lspconfig = {
-  --        setup_lspconf = "custom.plugins.lspconfig",
-  --     },
-  --  },
+M.plugins = require "custom.plugins"
+
+M.ui = {
+  theme = "catppuccin",
 }
+
+M.mappings = require "custom.mappings"
 
 return M
