@@ -33,6 +33,7 @@ null_ls.setup {
   -- because the files aren't following the md conventions.
   should_attach = function(bufnr)
     local git_repo_name = utils.git_repo_name()
-    return not vim.api.nvim_buf_get_name(bufnr):match "%.md$" and git_repo_name ~= "codigo-questions"
+    local is_md_file = vim.api.nvim_buf_get_name(bufnr):match "%.md$"
+    return not is_md_file or git_repo_name ~= "codigo-questions"
   end,
 }
