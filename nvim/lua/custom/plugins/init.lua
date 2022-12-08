@@ -1,3 +1,5 @@
+local utils = require "custom.utils"
+
 return {
   ["williamboman/mason.nvim"] = {
     override_options = {
@@ -177,5 +179,19 @@ return {
       -- extend snippets to typescript and javascript files
       luasnip.filetype_extend("typescript", { "javascript" })
     end,
+  },
+  ["nvim-treesitter/nvim-treesitter"] = {
+    override_options = {
+      highlight = {
+        enable = true,
+        use_languagetree = true,
+        -- disable on md files of the repo `codigo-questions` because it can
+        -- freeze when using non-conventional characters.
+        disable = function(lang, _)
+          local git_repo_name = utils.git_repo_name()
+          return lang == "markdown" and git_repo_name == "codigo-questions"
+        end,
+      },
+    },
   },
 }

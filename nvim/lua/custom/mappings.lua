@@ -1,5 +1,12 @@
 local M = {}
 
+M.disabled = {
+  i = {
+    -- disable the <C-k> so I can write accented characters
+    ["<C-k>"] = "",
+  },
+}
+
 M.telescope = {
   n = {
     ["<leader>fg"] = { "<cmd> Telescope git_files <CR>", "telescope list git files" },
