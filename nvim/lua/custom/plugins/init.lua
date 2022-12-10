@@ -182,6 +182,14 @@ return {
   },
   ["nvim-treesitter/nvim-treesitter"] = {
     override_options = {
+      playground = {
+        enable = true,
+      },
+      query_linter = {
+        enable = true,
+        use_virtual_text = true,
+        lint_events = { "BufWrite", "CursorHold" },
+      },
       highlight = {
         enable = true,
         use_languagetree = true,
@@ -194,4 +202,9 @@ return {
       },
     },
   },
+  ["nvim-treesitter/playground"] = {
+    requires = "nvim-treesitter/nvim-treesitter",
+  },
+  ["f-person/pubspec-assist-nvim"] = {},
+  ["~/.config/nvim/lua/custom/plugins/flutter-run-from-vscode"] = {},
 }

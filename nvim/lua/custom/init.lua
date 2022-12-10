@@ -49,3 +49,8 @@ api.nvim_create_user_command("TbufCloseOthers", function()
   api.nvim_echo({ { "" } }, false, {})
   vim.cmd "redraw"
 end, {})
+
+-- Wraps the current word in a Dart print statement
+api.nvim_create_user_command("WrapWithPrint", function()
+  require("custom.plugins.wrap-with-print-statement").wrap_with_print_statement()
+end, {})

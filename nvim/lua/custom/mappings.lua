@@ -5,6 +5,10 @@ M.disabled = {
     -- disable the <C-k> so I can write accented characters
     ["<C-k>"] = "",
   },
+  n = {
+    -- disable the <C-n> for toggling NvimTree, because <leader>e is already toggling
+    ["<C-n>"] = "",
+  },
 }
 
 M.telescope = {
@@ -49,6 +53,7 @@ M.nvimtree = {
       end,
       "select NvimTree mark",
     },
+    ["<leader>e"] = { "<cmd> NvimTreeFindFileToggle <CR>", "focus nvimtree finding the current file" },
   },
 }
 
