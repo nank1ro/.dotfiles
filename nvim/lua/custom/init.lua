@@ -54,3 +54,12 @@ end, {})
 api.nvim_create_user_command("WrapWithPrint", function()
   require("custom.plugins.wrap-with-print-statement").wrap_with_print_statement()
 end, {})
+
+-- Flutter hot restart and hto reload commands
+api.nvim_create_user_command("DapFlutterHotRestart", function()
+  require("dap").session():request "hotRestart"
+end, {})
+
+api.nvim_create_user_command("DapFlutterHotReload", function()
+  require("dap").session():request "hotReload"
+end, {})

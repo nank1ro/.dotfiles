@@ -207,4 +207,70 @@ return {
   },
   ["f-person/pubspec-assist-nvim"] = {},
   ["~/.config/nvim/lua/custom/plugins/flutter-run-from-vscode"] = {},
+  ["nvim-treesitter/nvim-treesitter-context"] = {
+    config = function()
+      require("treesitter-context").setup {
+        enable = false,
+      }
+    end,
+  },
+  ["mfussenegger/nvim-dap"] = {
+    config = function()
+      local dap = require "dap"
+      dap.adapters.dart = {
+        type = "executable",
+        command = "flutter",
+        args = { "debug-adapter" },
+        options = {
+          -- dartls is slow to start so avoid warnings from nvim-dap
+          initialize_timeout_sec = 30,
+        },
+      }
+      -- local dartSdkPath = "/Users/alexandrumariuti/fvm/versions/stable/bin/flutter" -- utils.dart_sdk_path()
+      -- local flutterSdkPath = "/Users/alexandrumariuti/fvm/versions/stable/bin/dart" --utils.flutter_sdk_path()
+      -- print("dartSdkPath", dartSdkPath)
+      -- print("flutterSdkPath", flutterSdkPath)
+      -- dap.configurations.dart = {
+      --   {
+      --     type = "dart",
+      --     request = "launch",
+      --     name = "Launch flutter",
+      --     dartSdkPath = dartSdkPath,
+      --     flutterSdkPath = flutterSdkPath,
+      --     program = "${workspaceFolder}/lib/main_dev.dart",
+      --     cwd = "${workspaceFolder}",
+      --   },
+      --   {
+      --     type = "dart",
+      --     request = "attach",
+      --     name = "Connect flutter",
+      --     dartSdkPath = dartSdkPath,
+      --     flutterSdkPath = flutterSdkPath,
+      --     program = "${workspaceFolder}/lib/main_dev.dart",
+      --     cwd = "${workspaceFolder}",
+      --   },
+      -- }
+      -- dap.set_log_level "DEBUG"
+    end,
+  },
+  ["rcarriga/nvim-dap-ui"] = {
+    requires = { "mfussenegger/nvim-dap" },
+    config = function()
+      local dap, dapui = require "dap", require "dapui"
+      dapui.setup()
+      -- Use nvim-dap events to open and close the windows automatically
+      dap.listeners.after.event_initialized["dapui_config"] = function()
+        dapui.open()
+      end
+      dap.listeners.before.event_terminated["dapui_config"] = function()
+        dapui.close()
+      end
+      dap.listeners.before.event_exited["dapui_config"] = function()
+        dapui.close()
+      end
+    end,
+  },
+  ["szw/vim-maximizer"] = {},
+  ["tpope/vim-unimpaired"] = {},
+  ["triglav/vim-visual-increment"] = {},
 }

@@ -9,9 +9,15 @@ local function select_configuration(configuration)
   if configuration.args then
     args = table.concat(configuration.args, " ")
   end
+
+  -- If the program has a different working directory, change it
+  if configuration.cwd then
+    nvterm.send("cd " .. configuration.cwd)
+  end
+
   local cmd = "flutter run -t " .. program .. " " .. args
-  nvterm.toggle "float"
-  nvterm.send(cmd, "float")
+  nvterm.toggle "horizontal"
+  nvterm.send(cmd, "horizontal")
 end
 
 -- Finds the first configuration with the given [name]

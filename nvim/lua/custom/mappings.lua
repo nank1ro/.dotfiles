@@ -1,5 +1,42 @@
 local M = {}
 
+M.general = {
+  n = {
+    ["<leader>mu"] = { "<cmd> call sml#mode_on()<CR>", "enter multi-line non-adjacent select" },
+    ["<C-d>"] = { "<C-d>zz" },
+    ["<C-u>"] = { "<C-u>zz" },
+    ["n"] = { "nzzzv" },
+    ["N"] = { "Nzzzv" },
+  },
+  i = {
+    ["<A-.>"] = {
+      function()
+        vim.lsp.buf.completion()
+      end,
+      "lsp completion",
+    },
+  },
+  v = {
+    -- keep visual mode after indent
+    [">"] = { ">gv" },
+    ["<"] = { "<gv" },
+    -- Replace visual selection with entered text
+    ["<C-r>"] = { '"hy:%s/\\<<C-r>h\\>//gc<left><left><left>' },
+  },
+}
+
+M.vim_maximizer = {
+  n = {
+    ["<C-w>m"] = { "<cmd> MaximizerToggle<CR>" },
+  },
+  i = {
+    ["<C-w>m"] = { "<C-o><cmd> MaximizerToggle<CR>" },
+  },
+  v = {
+    ["<C-w>m"] = { "<cmd> MaximizerToggle<CR>gv" },
+  },
+}
+
 M.disabled = {
   i = {
     -- disable the <C-k> so I can write accented characters
@@ -53,31 +90,6 @@ M.nvimtree = {
   },
 }
 
-M.general = {
-  n = {
-    ["<leader>mu"] = { "<cmd> call sml#mode_on()<CR>", "enter multi-line non-adjacent select" },
-    ["<C-d>"] = { "<C-d>zz" },
-    ["<C-u>"] = { "<C-u>zz" },
-    ["n"] = { "nzzzv" },
-    ["N"] = { "Nzzzv" },
-  },
-  i = {
-    ["<A-.>"] = {
-      function()
-        vim.lsp.buf.completion()
-      end,
-      "lsp completion",
-    },
-  },
-  v = {
-    -- keep visual mode after indent
-    [">"] = { ">gv" },
-    ["<"] = { "<gv" },
-    -- Replace visual selection with entered text
-    ["<C-r>"] = { '"hy:%s/\\<<C-r>h\\>//gc<left><left><left>' },
-  },
-}
-
 M.spectre = {
   n = {
     ["<leader>S"] = { "<cmd>lua require('spectre').open()<CR>", "open nvim spectre" },
@@ -86,6 +98,24 @@ M.spectre = {
   },
   v = {
     ["<leader>s"] = { "<esc>:lua require('spectre').open_visual()<CR>", "search current word in visual mode" },
+  },
+}
+
+M.lspconfig = {
+  n = {
+    ["[d"] = {
+      function()
+        vim.diagnostic.goto_prev { severity = vim.diagnostic.severity.ERROR }
+      end,
+      "goto prev",
+    },
+
+    ["d]"] = {
+      function()
+        vim.diagnostic.goto_next { severity = vim.diagnostic.severity.ERROR }
+      end,
+      "goto_next",
+    },
   },
 }
 

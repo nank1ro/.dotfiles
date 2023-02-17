@@ -1,5 +1,9 @@
 local M = {}
 
+local uname = vim.loop.os_uname()
+local is_windows = uname.version:match "Windows"
+local path_sep = is_windows and "\\" or "/"
+
 -- Returns the git repo name
 function M.git_repo_name()
   return vim.fn.system "basename `git rev-parse --show-toplevel` | tr -d '\n'"
@@ -15,9 +19,15 @@ function M.flutter_sdk_path()
   return vim.fn.system "which flutter | tr -d '\n'"
 end
 
-local uname = vim.loop.os_uname()
-local is_windows = uname.version:match "Windows"
-local path_sep = is_windows and "\\" or "/"
+local function _flutter_sdk_dart_bin(flutter_sdk)
+  -- retrieve the Dart binary from the Flutter SDK
+  local binary_name = is_windows and "dart.bat" or "dart"
+  return M.path_join(flutter_sdk, "bin", binary_name)
+end
+
+function M.dart_sdk_path()
+  return _flutter_sdk_dart_bin(M.flutter_sdk_path())
+end
 
 ---Join path segments using the os separator
 ---@vararg string

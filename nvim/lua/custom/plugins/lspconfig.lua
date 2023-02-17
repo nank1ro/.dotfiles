@@ -36,6 +36,7 @@ local servers = {
           utils.path_join(utils.flutter_sdk_path(), "packages"),
           utils.path_join(utils.flutter_sdk_path(), ".pub-cache"),
           utils.path_join(utils.home_path, ".pub-cache"),
+          utils.path_join(utils.home_path, "fvm/versions"),
         },
       },
     },
@@ -57,8 +58,5 @@ local servers = {
 
 for server_name, server_options in pairs(servers) do
   local merged_server_options = merge_tb("force", default_server_options, server_options)
-  if server_name == "dartls" then
-    vim.pretty_print(merged_server_options)
-  end
   lspconfig[server_name].setup(merged_server_options)
 end
