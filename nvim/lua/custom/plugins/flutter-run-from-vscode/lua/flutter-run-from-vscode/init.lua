@@ -15,9 +15,15 @@ local function select_configuration(configuration)
     nvterm.send("cd " .. configuration.cwd)
   end
 
-  local cmd = "flutter run -t " .. program .. " " .. args
+  local cmd = "flutter run -t " .. program .. " " .. args .. " --pid-file=/tmp/tf1.pid"
   nvterm.toggle "horizontal"
   nvterm.send(cmd, "horizontal")
+
+  -- hot refresh on save
+  local watch_cmd = 'npx -y nodemon -e dart -x "cat /tmp/tf1.pid | xargs kill -s USR1" > /dev/null 2>&1'
+  nvterm.new "vertical"
+  nvterm.send(watch_cmd, "vertical")
+  nvterm.toggle "vertical"
 end
 
 -- Finds the first configuration with the given [name]
@@ -50,7 +56,7 @@ end
 
 function M.run_from_vscode()
   local utils = require "custom.utils"
-  local root_dir = utils.git_repo_root_path()
+  local root_dir = utils.git_repo_root_path() or utils.working_dir_path()
   local launch_json_path = root_dir .. "/.vscode/launch.json"
   local launch_json_exists = utils.file_exists(launch_json_path)
   if not launch_json_exists then

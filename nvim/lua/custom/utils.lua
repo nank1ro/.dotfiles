@@ -11,7 +11,16 @@ end
 
 -- Returns the git repo root path
 function M.git_repo_root_path()
-  return vim.fn.system "git rev-parse --show-toplevel | tr -d '\n'"
+  local dir = vim.fn.system "git rev-parse --show-toplevel | tr -d '\n'"
+  if string.find(dir, "not a git repository") then
+    return nil
+  end
+  return dir
+end
+
+-- Returns the current workind directory  path
+function M.working_dir_path()
+  return vim.fn.getcwd()
 end
 
 -- Returns the flutter sdk path

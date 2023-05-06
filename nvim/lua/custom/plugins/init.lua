@@ -3,8 +3,7 @@ local utils = require "custom.utils"
 return {
   ["williamboman/mason.nvim"] = {
     override_options = {
-      ensure_installed = {
-        -- lua stuff
+      ensure_installed = { -- lua stuff
         "lua-language-server", -- lsp
         "stylua", -- formatter
 
@@ -53,16 +52,25 @@ return {
       require("yanky").setup {}
     end,
   },
+  ["nvim-telescope/telescope-ui-select.nvim"] = {
+    before = "nvim-telescope/telescope.nvim",
+  },
+  -- ["stevearc/dressing.nvim"] = {
+  --   config = function()
+  --     require("dressing").setup {}
+  --   end,
+  -- },
   ["nvim-telescope/telescope.nvim"] = {
     cmd = "Telescope",
     config = function()
       require "plugins.configs.telescope"
       require("telescope").load_extension "yank_history"
+      require("telescope").load_extension "ui-select"
     end,
     setup = function()
       require("core.utils").load_mappings "telescope"
     end,
-    extensions_list = { "yank_history" },
+    extensions_list = { "yank_history", "ui-select" },
   },
   ["kylechui/nvim-surround"] = {
     tag = "*", -- Use for stability; omit to use `main` branch for the latest features
@@ -74,7 +82,7 @@ return {
   },
   ["Rasukarusan/nvim-select-multi-line"] = {},
   -- file managing , picker etc
-  ["kyazdani42/nvim-tree.lua"] = {
+  ["nvim-tree/nvim-tree.lua"] = {
     override_options = {
       git = {
         enable = true,
@@ -126,13 +134,13 @@ return {
               arrow_closed = "",
             },
             git = {
-              unstaged = "✗",
+              unstaged = "◌",
               staged = "✓",
               unmerged = "",
               renamed = "➜",
               untracked = "★",
               deleted = "",
-              ignored = "◌",
+              ignored = "✗",
             },
           },
         },
@@ -273,4 +281,13 @@ return {
   ["szw/vim-maximizer"] = {},
   ["tpope/vim-unimpaired"] = {},
   ["triglav/vim-visual-increment"] = {},
+  -- Translate
+  ["uga-rosa/translate.nvim"] = {},
+  ["potamides/pantran.nvim"] = {
+    require("pantran").setup {
+      -- Default engine to use for translation. To list valid engine names run
+      -- `:lua =vim.tbl_keys(require("pantran.engines"))`.
+      default_engine = "google",
+    },
+  },
 }

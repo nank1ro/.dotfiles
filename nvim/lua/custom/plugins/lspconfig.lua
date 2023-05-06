@@ -20,6 +20,7 @@ local servers = {
     capabilities = json_capabilities,
   },
   dartls = {
+    -- cmd = { "fvm", "dart", "language-server", "--protocol=lsp" },
     init_options = {
       closingLabels = true,
       flutterOutline = true,

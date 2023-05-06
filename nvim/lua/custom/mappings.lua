@@ -7,6 +7,10 @@ M.general = {
     ["<C-u>"] = { "<C-u>zz" },
     ["n"] = { "nzzzv" },
     ["N"] = { "Nzzzv" },
+    -- open links under cursor
+    ["gx"] = { '<Cmd>call jobstart(["open", expand("<cfile>")], {"detach": v:true})<CR>' },
+    -- save file only if it changed
+    ["<C-s>"] = { "<cmd>update<CR>", "save file" },
   },
   i = {
     ["<A-.>"] = {
@@ -116,6 +120,13 @@ M.lspconfig = {
       end,
       "goto_next",
     },
+  },
+}
+
+M.translate = {
+  v = {
+    -- translate to english
+    ["<leader>tr"] = { "y<cmd>Pantran<CR>p" },
   },
 }
 
