@@ -1,0 +1,11 @@
+git:
+  pagers:
+    - pager: delta --paging=never --line-numbers --features=colibri
+      colorArg: always
+  ignoreWhitespaceInDiffView: true
+os:
+  editPreset: "vscode"
+promptToReturnFromSubprocess: false # removes "press enter to return to lazygit" popup
+gui:
+  nerdFontsVersion: "3"
+notARepository: "skip"
