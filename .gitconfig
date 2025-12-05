@@ -1,0 +1,17 @@
+[user]
+	email = alex@mariuti.com
+	name = Alexandru Mariuti
+[delta]
+	line-numbers = true
+	side-by-side = false
+[pull]
+	rebase = false
+[http]
+	postBuffer = 157286400
+[push]
+	useForceIfIncludes = true
+[init]
+	defaultBranch = main
+# wget https://raw.githubusercontent.com/dandavison/delta/main/themes.gitconfig -O ~/.config/delta/themes.gitconfig
+[include]
+    path = ~/.config/delta/themes.gitconfig
