@@ -1,3 +1,4 @@
+# Path: ~/Library/Application\ Support/lazygit/config.yml
 git:
   pagers:
     - pager: delta --paging=never --line-numbers --features=colibri
