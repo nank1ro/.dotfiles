@@ -23,6 +23,8 @@ config.tab_bar_at_bottom = true
 
 config.font_size = 14.5
 
+config.font = wezterm.font("JetBrains Mono")
+
 config.use_fancy_tab_bar = true
 
 -- config.window_padding = {
@@ -34,7 +36,7 @@ config.use_fancy_tab_bar = true
 
 config.window_frame = {
 	active_titlebar_bg = "#222437",
-	font = wezterm.font({ family = "Roboto", weight = "Bold" }),
+	font = wezterm.font({ family = "JetBrains Mono", weight = "Bold" }),
 	font_size = 13.0,
 }
 config.colors = {
