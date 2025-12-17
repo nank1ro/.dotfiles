@@ -16,10 +16,13 @@ return {
         enabled = false,
         open_cmd = "botright 15split", -- command to use to open the log buffer
         focus_on_open = false, -- focus on the newly opened log window
+      },
+      lsp = {
         settings = {
           analysisExcludedFolders = {
-            "/Users/ale/.pub-cache",
-            "/Users/ale/fvm/versions/stable/packages",
+            "~/.pub-cache",
+            "~/fvm/versions/stable/packages",
+            "~/fvm/versions/stable/bin/cache",
           },
         },
       },
