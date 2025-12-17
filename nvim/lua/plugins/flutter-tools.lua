@@ -5,11 +5,23 @@ return {
     dependencies = {
       "nvim-lua/plenary.nvim",
       "stevearc/dressing.nvim", -- optional for vim.ui.select
+      "mfussenegger/nvim-dap", -- optional for debugging
     },
     config = {
+      debugger = {
+        enabled = true,
+        evaluate_to_string_in_debug_views = true,
+      },
       dev_log = {
-        open_cmd = "edit", -- command to use to open the log buffer
+        enabled = false,
+        open_cmd = "botright 15split", -- command to use to open the log buffer
         focus_on_open = false, -- focus on the newly opened log window
+        settings = {
+          analysisExcludedFolders = {
+            "/Users/ale/.pub-cache",
+            "/Users/ale/fvm/versions/stable/packages",
+          },
+        },
       },
     },
   },

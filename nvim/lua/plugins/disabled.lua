@@ -7,6 +7,9 @@ return {
   {
     "snacks.nvim",
     opts = {
+      picker = {
+        hidden = true, -- show hidden files
+      },
       -- disable smooth scroll
       scroll = { enabled = false },
       -- disable snacks explorer
