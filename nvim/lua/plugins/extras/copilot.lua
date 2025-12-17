@@ -1,4 +1,4 @@
--- return {
---   { import = "lazyvim.plugins.extras.ai.copilot" },
--- }
-return {}
+return {
+  -- { import = "lazyvim.plugins.extras.ai.copilot" },
+  { import = "lazyvim.plugins.extras.ai.copilot-native" },
+}
