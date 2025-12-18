@@ -21,7 +21,7 @@ config.window_close_confirmation = "NeverPrompt"
 
 config.tab_bar_at_bottom = true
 
-config.font_size = 14.5
+config.font_size = 15
 
 config.font = wezterm.font("JetBrains Mono")
 
