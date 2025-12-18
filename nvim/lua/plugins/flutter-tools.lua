@@ -9,7 +9,7 @@ return {
     },
     config = {
       debugger = {
-        enabled = true,
+        enabled = false,
         evaluate_to_string_in_debug_views = true,
       },
       dev_log = {
