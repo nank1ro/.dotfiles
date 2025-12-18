@@ -20,9 +20,9 @@ return {
       lsp = {
         settings = {
           analysisExcludedFolders = {
-            "~/.pub-cache",
-            "~/fvm/versions/stable/packages",
-            "~/fvm/versions/stable/bin/cache",
+            "/Users/ale/.pub-cache",
+            "/Users/ale/fvm/versions/stable/packages",
+            "/Users/ale/fvm/versions/stable/bin/cache",
           },
         },
       },
