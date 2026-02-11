@@ -3,6 +3,11 @@ git:
     - pager: delta --paging=never --line-numbers --features=colibri
       colorArg: always
   ignoreWhitespaceInDiffView: true
+  commitPrefix:
+    - pattern: "^(\\w+)/(\\d+)-(.*)"
+      replace: "$1: $2 $3"
+    - pattern: "^([^_]+)_.*"
+      replace: "($1) "
 os:
   editPreset: "vscode"
 promptToReturnFromSubprocess: false # removes "press enter to return to lazygit" popup
