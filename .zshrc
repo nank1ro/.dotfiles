@@ -7,6 +7,7 @@ export PATH="$PATH":"$HOME/fvm/versions/stable/bin/cache/dart-sdk/bin"
 export PATH="$PATH":"$HOME/.pub-cache/bin"
 export PATH="$PATH":"$HOME/Library/Android/sdk/platform-tools"
 export PATH="$HOME/.local/bin:$PATH"
+export PATH="$HOME/go/bin:$PATH"
 
 # Google Cloud SDK
 export PATH="$HOME/google-cloud-sdk/bin/:$PATH"
@@ -150,3 +151,8 @@ alias tm='task-master'
 alias taskmaster='task-master'
 
 [[ "$TERM_PROGRAM" == "kiro" ]] && . "$(kiro --locate-shell-integration-path zsh)"
+
+# opencode
+export PATH=/Users/ale/.opencode/bin:$PATH
+
+alias rm='trash'
