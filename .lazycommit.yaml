@@ -1,0 +1,5 @@
+active_provider: anthropic
+providers:
+  anthropic:
+    model: "claude-haiku-4-5" # Uses Claude Code CLI - no API key needed
+    num_suggestions: 3 # Number of commit suggestions to generate
