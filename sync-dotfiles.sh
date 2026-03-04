@@ -36,6 +36,20 @@ else
   echo "⚠ Skipping lazygit: source file not found"
 fi
 
+# Sync lazycommit configs
+for lcfile in .lazycommit.yaml .lazycommit.prompts.yaml; do
+  if [ -f "$HOME/.config/$lcfile" ]; then
+    cp "$HOME/.config/$lcfile" "$REPO_ROOT/$lcfile"
+
+    if [ -n "$(git status --porcelain "$lcfile")" ]; then
+      echo "✓ Synced $lcfile"
+      has_changes=true
+    fi
+  else
+    echo "⚠ Skipping $lcfile: source file not found"
+  fi
+done
+
 # Sync wezterm config
 if [ -f "$HOME/.wezterm.lua" ]; then
   cp "$HOME/.wezterm.lua" "$REPO_ROOT/.wezterm.lua"
