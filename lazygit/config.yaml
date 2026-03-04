@@ -9,7 +9,7 @@ git:
   #   - pattern: "^([^_]+)_.*"
   #     replace: "($1) "
 os:
-  editPreset: "vscode"
+  editPreset: "nvim-remote"
 promptToReturnFromSubprocess: false # removes "press enter to return to lazygit" popup
 gui:
   nerdFontsVersion: "3"
