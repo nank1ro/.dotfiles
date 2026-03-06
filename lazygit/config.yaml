@@ -15,6 +15,11 @@ gui:
   nerdFontsVersion: "3"
 notARepository: "skip"
 customCommands:
+  - key: "E"
+    description: "Add empty commit"
+    context: "commits"
+    command: 'git commit --allow-empty -m "empty commit"'
+    loadingText: "Committing empty commit..."
   - key: "<c-a>" # ctrl + a
     description: "pick AI commit"
     command: |
