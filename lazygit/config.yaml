@@ -8,6 +8,10 @@ git:
   #     replace: "$1: $2 $3"
   #   - pattern: "^([^_]+)_.*"
   #     replace: "($1) "
+quitOnTopLevelReturn: true
+# os:
+#   edit: "zed {{filename}}"
+#   editAtLine: "zed {{filename}}:{{line}}"
 os:
   editPreset: "nvim-remote"
 promptToReturnFromSubprocess: false # removes "press enter to return to lazygit" popup
