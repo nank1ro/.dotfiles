@@ -50,6 +50,34 @@ for lcfile in .lazycommit.yaml .lazycommit.prompts.yaml; do
   fi
 done
 
+# Sync tmux config
+if [ -f "$HOME/.tmux.conf" ]; then
+  cp "$HOME/.tmux.conf" "$REPO_ROOT/.tmux.conf"
+
+  if [ -n "$(git status --porcelain .tmux.conf)" ]; then
+    echo "✓ Synced tmux config"
+    has_changes=true
+  fi
+else
+  echo "⚠ Skipping tmux: source file not found"
+fi
+
+# Sync claude settings
+claude_dir="$REPO_ROOT/claude"
+mkdir -p "$claude_dir"
+for cfile in settings.json CLAUDE.md; do
+  if [ -f "$HOME/.claude/$cfile" ]; then
+    cp "$HOME/.claude/$cfile" "$claude_dir/$cfile"
+
+    if [ -n "$(git status --porcelain "claude/$cfile")" ]; then
+      echo "✓ Synced claude/$cfile"
+      has_changes=true
+    fi
+  else
+    echo "⚠ Skipping claude/$cfile: source file not found"
+  fi
+done
+
 # Sync wezterm config
 if [ -f "$HOME/.wezterm.lua" ]; then
   cp "$HOME/.wezterm.lua" "$REPO_ROOT/.wezterm.lua"
