@@ -90,6 +90,19 @@ else
   echo "⚠ Skipping wezterm: source file not found"
 fi
 
+# Sync ghostty config
+if [ -f "$HOME/.config/ghostty/config" ]; then
+  mkdir -p "$REPO_ROOT/ghostty"
+  cp "$HOME/.config/ghostty/config" "$REPO_ROOT/ghostty/config"
+
+  if [ -n "$(git status --porcelain ghostty/)" ]; then
+    echo "✓ Synced ghostty config"
+    has_changes=true
+  fi
+else
+  echo "⚠ Skipping ghostty: source file not found"
+fi
+
 if [ "$has_changes" = false ]; then
   echo "✓ All configs already up to date"
 fi
