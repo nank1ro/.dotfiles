@@ -12,6 +12,7 @@ export PATH="$FVM_HOME:$PATH"
 export PATH="$HOME/flutter/bin:$PATH"
 
 ZSH_THEME="robbyrussell"
+DISABLE_AUTO_TITLE="true"
 
 plugins=(
 git
