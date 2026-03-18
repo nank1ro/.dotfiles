@@ -8,3 +8,5 @@ end
 vim.opt.exrc = true
 -- Disable swap files
 vim.opt.swapfile = false
+-- Use absolute line numbers instead of relative
+vim.opt.relativenumber = false
