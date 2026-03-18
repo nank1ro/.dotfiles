@@ -13,7 +13,7 @@ window-padding-y = 4
 # Misc
 confirm-close-surface = false
 shell-integration-features = no-title
-mouse-scroll-multiplier = 0.2
+mouse-scroll-multiplier = 0.5
 
 # Keybindings: send special chars to NeoVim for CMD+ keys
 # These match the <Char-0xNN> mappings in nvim/lua/config/keymaps.lua
