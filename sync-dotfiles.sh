@@ -90,6 +90,18 @@ else
   echo "⚠ Skipping wezterm: source file not found"
 fi
 
+# Sync zshrc
+if [ -f "$HOME/.zshrc" ]; then
+  cp "$HOME/.zshrc" "$REPO_ROOT/.zshrc"
+
+  if [ -n "$(git status --porcelain .zshrc)" ]; then
+    echo "✓ Synced zshrc"
+    has_changes=true
+  fi
+else
+  echo "⚠ Skipping zshrc: source file not found"
+fi
+
 # Sync ghostty config
 if [ -f "$HOME/.config/ghostty/config" ]; then
   mkdir -p "$REPO_ROOT/ghostty"

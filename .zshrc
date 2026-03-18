@@ -1,21 +1,16 @@
-# Path to your oh-my-zsh installation.
 export ZSH="$HOME/.oh-my-zsh"
-
-# Flutter config
 export PATH="$PATH:$HOME/fvm/default/bin"
 export PATH="$PATH":"$HOME/fvm/versions/stable/bin/cache/dart-sdk/bin"
 export PATH="$PATH":"$HOME/.pub-cache/bin"
 export PATH="$PATH":"$HOME/Library/Android/sdk/platform-tools"
 export PATH="$HOME/.local/bin:$PATH"
 export PATH="$HOME/go/bin:$PATH"
-
-# Google Cloud SDK
 export PATH="$HOME/google-cloud-sdk/bin/:$PATH"
+# Flutter
+export FVM_HOME="$HOME/fvm/versions/stable/bin"
+export PATH="$FVM_HOME:$PATH"
+export PATH="$HOME/flutter/bin:$PATH"
 
-# Set name of the theme to load --- if set to "random", it will
-# load a random theme each time oh-my-zsh is loaded, in which case,
-# to know which specific one was loaded, run: echo $RANDOM_THEME
-# See https://github.com/ohmyzsh/ohmyzsh/wiki/Themes
 ZSH_THEME="robbyrussell"
 
 plugins=(
@@ -27,14 +22,14 @@ brew
 virtualenv
 fzf
 zsh-vi-mode
+zoxide
 )
 
 source $ZSH/oh-my-zsh.sh
 
-alias fgen="dart run build_runner build --delete-conflicting-outputs"
-alias frun="flutter run"
-alias flutter_localize="flutter pub run intl_translation:extract_to_arb --output-dir=lib/l10n ./lib/l10n/app_copy.dart"
-alias flutter_easy_localization="flutter pub run easy_localization:generate --source-dir=assets/translations"
+alias gen="dart run build_runner build -d"
+alias genrm="dart run build_runner clean"
+alias i18n="dart run slang"
 # Custom vim function to handle directories and files differently
 vim() {
   # Check if the first argument is a directory
@@ -48,9 +43,10 @@ vim() {
   fi
 }
 alias oldvim="\vim"
-alias fformat="flutter format ./lib"
+alias ff="flutter format ./lib"
 alias fget="flutter pub get"
 alias fclean="flutter clean && fget"
+alias bclean="dart run build_runner clean"
 alias fup="flutter pub upgrade --major-versions"
 alias fadd="flutter pub add $1"
 alias lg="lazygit"
@@ -61,10 +57,26 @@ export PATH="/usr/local/opt/ruby/bin:$PATH"
 
 [ -f "$HOME/.ghcup/env" ] && source "$HOME/.ghcup/env" # ghcup-env
 
+# eval "$(oh-my-posh init zsh)"
+# eval "$(oh-my-posh init zsh --config $(brew --prefix oh-my-posh)/themes/marcduiker.omp.json)"
 eval "$(oh-my-posh init zsh --config ~/.config/oh-my-posh-theme.json)"
 alias ls='eza --icons --group-directories-first'
 alias ll='eza -l --icons --no-user --group-directories-first --time-style long-iso'
 alias la='eza -la --icons --no-user --group-directories-first --time-style long-iso'
+
+# Taken from https://gist.github.com/lukepighetti/393845a6751c0b00c20d5cfbac1f8bd1
+function flutter-watch(){
+  tmux new-session \;\
+  send-keys 'flutter run --pid-file=/tmp/tf1.pid' Enter \;\
+  split-window -v \;\
+  send-keys 'npx -y nodemon -e dart -x "cat /tmp/tf1.pid | xargs kill -s USR1"' Enter \;\
+  resize-pane -y 5 -t 1 \;\
+  select-pane -t 0 \;
+}
+
+function hx-find(){
+  hx $(ag . | fzf | cut -d : -f 1,2)
+}
 
 ## [Completion] 
 ## Completion scripts setup. Remove the following line to uninstall
@@ -84,7 +96,14 @@ alias gp=gitpush
 
 # a function that takes a file with extension and uses the `cwebp` command to convert it to webp.
 # applies the flag -o to specify the output file name, which consists of the original file name with the extension replaced with .webp
+# automatically installs cwebp via Homebrew if not already installed
 function webp() {
+  # Check if cwebp is installed, install if not
+  if ! command -v cwebp &> /dev/null; then
+    echo "cwebp not found. Installing via Homebrew..."
+    brew install webp
+  fi
+
   cwebp "$1" -o "${1%.*}.webp"
 }
 
@@ -107,12 +126,28 @@ function webpall() {
 # bun
 export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
-source $HOME/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+source $ZSH/custom/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 
 function virtualenv_info { 
     [ $VIRTUAL_ENV ] && echo '('`basename $VIRTUAL_ENV`') '
 }
 export VIRTUAL_ENV_DISABLE_PROMPT=1
+
+# Helix config for running Dart & Flutter
+function flutter-watch(){
+  local PID_FILE="/tmp/tf$$.pid"
+  tmux new-session \;\
+  send-keys "flutter run --pid-file=$PID_FILE" Enter \;\
+  split-window -v \;\
+  send-keys "npx -y nodemon -e dart -x \"cat $PID_FILE | xargs kill -s USR1\"" Enter \;\
+  resize-pane -y 5 -t 1 \;\
+  select-pane -t 0 \;
+  rm $PID_FILE;
+}
+
+function hx-find(){
+  hx $(ag . | fzf | cut -d : -f 1,2)
+}
 
 source /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 export PYENV_ROOT="$HOME/.pyenv"
@@ -132,19 +167,22 @@ alias deletevenvs="rm -rf \`find . -type d -name '.venv'\`"
 eval $(thefuck --alias)
 
 # The next line updates PATH for the Google Cloud SDK.
-if [ -f '$HOME/google-cloud-sdk/path.zsh.inc' ]; then . '$HOME/google-cloud-sdk/path.zsh.inc'; fi
+if [ -f "$HOME/google-cloud-sdk/path.zsh.inc" ]; then . "$HOME/google-cloud-sdk/path.zsh.inc"; fi
 
 # The next line enables shell command completion for gcloud.
-if [ -f '$HOME/google-cloud-sdk/completion.zsh.inc' ]; then . '$HOME/google-cloud-sdk/completion.zsh.inc'; fi
+if [ -f "$HOME/google-cloud-sdk/completion.zsh.inc" ]; then . "$HOME/google-cloud-sdk/completion.zsh.inc"; fi
 # Just alias
 alias j=just
 
+# Added by Windsurf
+export PATH="$HOME/.codeium/windsurf/bin:$PATH"
 # asdf: setup
 export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
 # asdf: append completions to fpath
 fpath=(${ASDF_DATA_DIR:-$HOME/.asdf}/completions $fpath)
 # asdf: initialise completions with ZSH's compinit
 autoload -Uz compinit && compinit
+
 
 # Task Master aliases added on 9/8/2025
 alias tm='task-master'
@@ -153,6 +191,12 @@ alias taskmaster='task-master'
 [[ "$TERM_PROGRAM" == "kiro" ]] && . "$(kiro --locate-shell-integration-path zsh)"
 
 # opencode
-export PATH=/Users/ale/.opencode/bin:$PATH
+export PATH="$HOME/.opencode/bin:$PATH"
 
+# Source secrets (API keys etc.) - not tracked in git
+[ -f "$HOME/.zshrc.secrets" ] && source "$HOME/.zshrc.secrets"
+# trash - safe rm that moves files to Mac Trash
 alias rm='trash'
+
+# Set Ghostty tab title to current directory (shortened)
+precmd() { print -Pn "\e]2;%~\a" }
