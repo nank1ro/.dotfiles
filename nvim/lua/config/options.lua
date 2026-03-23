@@ -6,6 +6,15 @@ if vim.g.vscode then
 end
 -- Enable loading .nvim.lua config
 vim.opt.exrc = true
+-- Auto-trust .nvim.lua files (bypass the trust prompt)
+vim.secure.read = function(path)
+  local f = io.open(path, "r")
+  if f then
+    local content = f:read("*a")
+    f:close()
+    return content
+  end
+end
 -- Disable swap files
 vim.opt.swapfile = false
 -- Use absolute line numbers instead of relative
