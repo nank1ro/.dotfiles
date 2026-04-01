@@ -177,6 +177,16 @@ vim.api.nvim_create_autocmd({ "VimEnter", "DirChanged" }, {
   end,
 })
 
+-- Always enter insert mode in terminal buffers
+vim.api.nvim_create_autocmd({ "TermOpen", "BufEnter", "WinEnter" }, {
+  pattern = "term://*",
+  callback = function()
+    if vim.bo.buftype == "terminal" then
+      vim.cmd("startinsert")
+    end
+  end,
+})
+
 vim.api.nvim_create_user_command("DeleteComments", function()
   local bufnr = vim.api.nvim_get_current_buf()
   local language_tree = vim.treesitter.get_parser(bufnr)
