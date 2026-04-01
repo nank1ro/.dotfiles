@@ -6,6 +6,23 @@
 --
 -- Or remove existing autocmds by their group name (which is prefixed with `lazyvim_` for the defaults)
 -- e.g. vim.api.nvim_del_augroup_by_name("lazyvim_wrap_spell")
+
+-- Auto-reload buffers changed externally (e.g. Claude Code sidebar)
+vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI" }, {
+  group = vim.api.nvim_create_augroup("auto_checktime", { clear = true }),
+  command = "if mode() != 'c' | checktime | endif",
+})
+
+-- Prevent tabs: move any buffer opened in a new tab back to the main tab
+vim.api.nvim_create_autocmd("TabNew", {
+  group = vim.api.nvim_create_augroup("no_tabs", { clear = true }),
+  callback = function()
+    local buf = vim.api.nvim_get_current_buf()
+    vim.cmd.tabclose()
+    vim.api.nvim_set_current_buf(buf)
+  end,
+})
+
 -- Auto-generate .nvim.lua from .vscode/launch.json for flutter-tools
 vim.api.nvim_create_autocmd({ "VimEnter", "DirChanged" }, {
   group = vim.api.nvim_create_augroup("generate_nvim_lua", { clear = true }),
@@ -55,8 +72,9 @@ vim.api.nvim_create_autocmd({ "VimEnter", "DirChanged" }, {
         local dart_defines = {}
         local dynamic_defines = {}
 
-        -- Parse args for -d, --flavor, --dart-define, --target
+        -- Parse args for -d, --flavor, --dart-define, --target; collect the rest
         local device, flavor, target_from_args
+        local extra_args = {}
         if cfg.args then
           local i = 1
           while i <= #cfg.args do
@@ -82,7 +100,13 @@ vim.api.nvim_create_autocmd({ "VimEnter", "DirChanged" }, {
                 end
               end
               i = i + 1
+            elseif arg:match("^%-%-") and cfg.args[i + 1] and not cfg.args[i + 1]:match("^%-") then
+              -- Flag with a separate value (e.g. --web-port 8000)
+              table.insert(extra_args, arg)
+              table.insert(extra_args, cfg.args[i + 1])
+              i = i + 2
             else
+              table.insert(extra_args, arg)
               i = i + 1
             end
           end
@@ -104,6 +128,13 @@ vim.api.nvim_create_autocmd({ "VimEnter", "DirChanged" }, {
         end
         if cfg.flutterMode then
           table.insert(parts, string.format('    flutter_mode = %q,', cfg.flutterMode))
+        end
+        if #extra_args > 0 then
+          local quoted = {}
+          for _, a in ipairs(extra_args) do
+            table.insert(quoted, string.format("%q", a))
+          end
+          table.insert(parts, "    additional_args = { " .. table.concat(quoted, ", ") .. " },")
         end
         if next(dart_defines) then
           local define_parts = {}
