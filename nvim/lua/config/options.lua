@@ -19,3 +19,7 @@ end
 vim.opt.swapfile = false
 -- Use absolute line numbers instead of relative
 vim.opt.relativenumber = false
+-- Faster CursorHold for auto-reloading files changed externally (e.g. Claude Code sidebar)
+vim.opt.updatetime = 250
+-- Hide the tabline entirely (use buffers, not tabs)
+vim.opt.showtabline = 0
