@@ -1,68 +1,34 @@
 {
   "env": {
-    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "75",
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "CLAUDE_CODE_NEW_INIT": "true"
+    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
+    "ANTHROPIC_MODEL": "claude-opus-4-7[1m]"
   },
   "attribution": {
     "commit": "",
     "pr": ""
   },
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/usr/bin/afplay /System/Library/Sounds/Glass.aiff"
-          }
-        ]
-      }
-    ]
+  "permissions": {
+    "defaultMode": "auto"
   },
   "enabledPlugins": {
-    "swift-lsp@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
-    "frontend-design@claude-plugins-official": true,
-    "github@claude-plugins-official": true,
-    "impeccable@impeccable": true,
     "chrome-devtools-mcp@claude-plugins-official": true,
-    "gopls-lsp@claude-plugins-official": true,
-    "lua-lsp@claude-plugins-official": true,
-    "everything-claude-code@everything-claude-code": true
+    "pyright-lsp@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
-    "impeccable": {
+    "chrome-devtools-plugins": {
       "source": {
         "source": "github",
-        "repo": "pbakaus/impeccable"
-      }
-    },
-    "claude-code-plugins": {
-      "source": {
-        "source": "github",
-        "repo": "anthropics/claude-code"
-      }
-    },
-    "everything-claude-code": {
-      "source": {
-        "source": "github",
-        "repo": "affaan-m/everything-claude-code"
+        "repo": "ChromeDevTools/chrome-devtools-mcp"
       }
     }
   },
   "alwaysThinkingEnabled": true,
+  "effortLevel": "high",
+  "showClearContextOnPlanAccept": true,
   "skipDangerousModePermissionPrompt": true,
+  "theme": "auto",
+  "skipAutoPermissionPrompt": true,
   "preferences": {
-    "tmuxSplitPanes": true
-  },
-  "mcpServers": {
-    "qmd": {
-      "command": "qmd",
-      "args": [
-        "mcp"
-      ]
-    }
+    "secureVmFeaturesEnabled": false
   }
 }

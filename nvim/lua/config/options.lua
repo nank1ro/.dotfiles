@@ -23,3 +23,18 @@ vim.opt.relativenumber = false
 vim.opt.updatetime = 250
 -- Hide the tabline entirely (use buffers, not tabs)
 vim.opt.showtabline = 0
+
+-- Work around nvim 0.12's glob parser rejecting the Dart LSP's file-watcher
+-- glob `**/**.dart`. nvim treats consecutive `**` as invalid and aborts the
+-- `client/registerCapability` request (SERVER_REQUEST_HANDLER_ERROR), which
+-- breaks file watching for dartls. Sanitize the malformed segment
+-- (`**<suffix>` -> `*<suffix>`, e.g. `**/**.dart` -> `**/*.dart`) before it
+-- reaches the parser so watching keeps working instead of being disabled.
+local glob = require("vim.glob")
+local to_lpeg = glob.to_lpeg
+glob.to_lpeg = function(pattern)
+  if type(pattern) == "string" then
+    pattern = pattern:gsub("%*%*([^/])", "*%1")
+  end
+  return to_lpeg(pattern)
+end

@@ -1,9 +1,12 @@
+# Added by ForgeCode installer
+export PATH="/Users/ale/.local/bin:$PATH"
 export ZSH="$HOME/.oh-my-zsh"
 export PATH="$PATH:$HOME/fvm/default/bin"
 export PATH="$PATH":"$HOME/fvm/versions/stable/bin/cache/dart-sdk/bin"
 export PATH="$PATH":"$HOME/.pub-cache/bin"
 export PATH="$PATH":"$HOME/Library/Android/sdk/platform-tools"
 export PATH="$HOME/.local/bin:$PATH"
+export PATH="$HOME/Library/Python/3.14/bin:$PATH"
 export PATH="$HOME/go/bin:$PATH"
 export PATH="$HOME/google-cloud-sdk/bin/:$PATH"
 # Flutter
@@ -196,8 +199,29 @@ export PATH="$HOME/.opencode/bin:$PATH"
 
 # Source secrets (API keys etc.) - not tracked in git
 [ -f "$HOME/.zshrc.secrets" ] && source "$HOME/.zshrc.secrets"
-# trash - safe rm that moves files to Mac Trash
-alias rm='trash'
 
 # Set Ghostty tab title to current directory (shortened)
 precmd() { print -Pn "\e]2;%~\a" }
+
+# >>> forge initialize >>>
+# !! Contents within this block are managed by 'forge zsh setup' !!
+# !! Do not edit manually - changes will be overwritten !!
+
+# Add required zsh plugins if not already present
+if [[ ! " ${plugins[@]} " =~ " zsh-autosuggestions " ]]; then
+    plugins+=(zsh-autosuggestions)
+fi
+if [[ ! " ${plugins[@]} " =~ " zsh-syntax-highlighting " ]]; then
+    plugins+=(zsh-syntax-highlighting)
+fi
+
+# Load forge shell plugin (commands, completions, keybindings) if not already loaded
+if [[ -z "$_FORGE_PLUGIN_LOADED" ]]; then
+    eval "$(forge zsh plugin)"
+fi
+
+# Load forge shell theme (prompt with AI context) if not already loaded
+if [[ -z "$_FORGE_THEME_LOADED" ]]; then
+    eval "$(forge zsh theme)"
+fi
+# <<< forge initialize <<<
