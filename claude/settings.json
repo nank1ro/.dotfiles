@@ -1,7 +1,7 @@
 {
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
-    "ANTHROPIC_MODEL": "claude-opus-4-7[1m]"
+    "ANTHROPIC_MODEL": "claude-opus-4-8[1m]"
   },
   "attribution": {
     "commit": "",
@@ -23,7 +23,7 @@
     }
   },
   "alwaysThinkingEnabled": true,
-  "effortLevel": "high",
+  "effortLevel": "xhigh",
   "showClearContextOnPlanAccept": true,
   "skipDangerousModePermissionPrompt": true,
   "theme": "auto",
