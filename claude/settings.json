@@ -1,7 +1,10 @@
 {
   "env": {
+    "ANTHROPIC_MODEL": "claude-opus-4-8[1m]",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
-    "ANTHROPIC_MODEL": "claude-opus-4-8[1m]"
+    "DISABLE_TELEMETRY": "1",
+    "DO_NOT_TRACK": "1"
   },
   "attribution": {
     "commit": "",
@@ -10,15 +13,35 @@
   "permissions": {
     "defaultMode": "auto"
   },
+  "model": "claude-fable-5",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/ale/.claude/hooks/review-gate.sh"
+          }
+        ]
+      }
+    ]
+  },
   "enabledPlugins": {
     "chrome-devtools-mcp@claude-plugins-official": true,
-    "pyright-lsp@claude-plugins-official": true
+    "pyright-lsp@claude-plugins-official": true,
+    "paddle@claude-community": true
   },
   "extraKnownMarketplaces": {
     "chrome-devtools-plugins": {
       "source": {
         "source": "github",
         "repo": "ChromeDevTools/chrome-devtools-mcp"
+      }
+    },
+    "claude-community": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-community"
       }
     }
   },

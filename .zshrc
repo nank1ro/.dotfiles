@@ -47,6 +47,9 @@ vim() {
   fi
 }
 alias oldvim="\vim"
+# Default editor
+export EDITOR='nvim'
+export VISUAL='nvim'
 alias ff="flutter format ./lib"
 alias fget="flutter pub get"
 alias fclean="flutter clean && fget"

@@ -115,6 +115,19 @@ else
   echo "⚠ Skipping ghostty: source file not found"
 fi
 
+# Sync finicky config (Helium air-traffic-control link routing)
+if [ -f "$HOME/.config/finicky/finicky.js" ]; then
+  mkdir -p "$REPO_ROOT/finicky"
+  cp "$HOME/.config/finicky/finicky.js" "$REPO_ROOT/finicky/finicky.js"
+
+  if [ -n "$(git status --porcelain finicky/)" ]; then
+    echo "✓ Synced finicky config"
+    has_changes=true
+  fi
+else
+  echo "⚠ Skipping finicky: source file not found"
+fi
+
 if [ "$has_changes" = false ]; then
   echo "✓ All configs already up to date"
 fi
