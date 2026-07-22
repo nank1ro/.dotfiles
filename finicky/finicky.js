@@ -9,8 +9,11 @@ const WORK = "Default";
 const UFIRST = "Profile 1";
 
 const helium = (profile) => ({ name: HELIUM, profile });
-// Normalise host: strip any :port and lowercase (robust regardless of Finicky's host/port split).
-const host = (url) => url.host.split(":")[0].toLowerCase();
+
+// Bare hostname: lowercase, strip a trailing :port (IPv6-safe: only a numeric port at the
+// end), and drop a trailing FQDN dot. Guards against a missing host on odd schemes.
+const host = (url) => (url.host || "").toLowerCase().replace(/:\d+$/, "").replace(/\.$/, "");
+const isGithub = (h) => h === "github.com" || h.endsWith(".github.com");
 
 export default {
   // Unmatched links: launch Helium with no profile flag => its last-used profile.
@@ -19,16 +22,16 @@ export default {
     // 1) qurami org on github => ufirst  (MUST come before the github->work rule)
     {
       match: ({ url }) => {
-        if (host(url) !== "github.com") return false;
-        const p = url.pathname;
+        if (!isGithub(host(url))) return false;
+        const p = url.pathname.toLowerCase(); // GitHub org/repo paths are case-insensitive
         return p === "/qurami" || p.startsWith("/qurami/") ||
                p === "/orgs/qurami" || p.startsWith("/orgs/qurami/");
       },
       browser: helium(UFIRST),
     },
-    // 2) all other github.com (+ subdomains: gist., api., …) => work
+    // 2) all other github.com (+ subdomains: gist., api., www.) => work
     {
-      match: ({ url }) => { const h = host(url); return h === "github.com" || h.endsWith(".github.com"); },
+      match: ({ url }) => isGithub(host(url)),
       browser: helium(WORK),
     },
     // 3) Google Meet => ufirst
@@ -38,7 +41,7 @@ export default {
       match: ({ url }) => {
         const h = host(url);
         return h === "localhost" || h.endsWith(".localhost") ||
-               h === "127.0.0.1" || h === "0.0.0.0" ||
+               h === "127.0.0.1" || h === "0.0.0.0" || h === "::1" || h === "[::1]" ||
                h.endsWith(".test") || h.endsWith(".local");
       },
       browser: helium(WORK),
