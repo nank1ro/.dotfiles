@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# Pre-commit hook to sync dotfiles configs
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# Run the sync script
+"$REPO_ROOT/sync-dotfiles.sh"
+
+# Exit with success (allows commit to proceed)
+exit 0

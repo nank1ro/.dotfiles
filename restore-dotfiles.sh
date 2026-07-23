@@ -94,6 +94,36 @@ restore_nvim() {
   fi
 }
 
+# Arm this clone's git hooks. Git never clones .git/hooks/, so point core.hooksPath
+# at the repo's tracked hooks/ dir. Absolute path => works no matter the CWD at commit
+# time (a relative core.hooksPath is resolved against the CWD, which is a footgun).
+# Also ensures the hook is executable, since git silently ignores a non-executable
+# hook (the commit just succeeds with a hint) — a stripped bit would disable syncing.
+arm_hooks() {
+  local hook="$REPO_ROOT/hooks/pre-commit"
+  if [ ! -f "$hook" ]; then
+    echo "⚠ skip     git hooks — $hook not in repo"
+    return
+  fi
+  local want="$REPO_ROOT/hooks" have
+  have="$(git -C "$REPO_ROOT" config --local core.hooksPath 2>/dev/null || true)"
+  if [ "$have" = "$want" ] && [ -x "$hook" ]; then
+    echo "= match    git hooks (core.hooksPath -> hooks/)"
+    return
+  fi
+  DIFFS=$((DIFFS + 1))
+  if [ "$DRY_RUN" = true ]; then
+    echo "~ would arm git hooks (core.hooksPath -> hooks/)"
+    return
+  fi
+  if chmod +x "$hook" && git -C "$REPO_ROOT" config core.hooksPath "$want"; then
+    echo "✓ armed    git hooks (core.hooksPath -> hooks/)"
+  else
+    echo "✗ FAILED   git hooks (core.hooksPath)"
+    FAILED=true
+  fi
+}
+
 restore_nvim
 
 # lazygit: repo stores config.yaml, but the live file is config.yml.
@@ -124,6 +154,9 @@ restore_file "$REPO_ROOT/finicky/finicky.js" "$HOME/.config/finicky/finicky.js"
 
 # gitconfig
 restore_file "$REPO_ROOT/.gitconfig" "$HOME/.gitconfig"
+
+# git hooks: arm the tracked pre-commit hook on this clone (git never clones .git/hooks/)
+arm_hooks
 
 echo
 if [ "$FAILED" = true ]; then
