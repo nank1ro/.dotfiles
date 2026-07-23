@@ -128,6 +128,18 @@ else
   echo "⚠ Skipping finicky: source file not found"
 fi
 
+# Sync gitconfig
+if [ -f "$HOME/.gitconfig" ]; then
+  cp "$HOME/.gitconfig" "$REPO_ROOT/.gitconfig"
+
+  if [ -n "$(git status --porcelain .gitconfig)" ]; then
+    echo "✓ Synced gitconfig"
+    has_changes=true
+  fi
+else
+  echo "⚠ Skipping gitconfig: source file not found"
+fi
+
 if [ "$has_changes" = false ]; then
   echo "✓ All configs already up to date"
 fi

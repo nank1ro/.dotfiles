@@ -12,6 +12,18 @@
 	useForceIfIncludes = true
 [init]
 	defaultBranch = main
-# wget https://raw.githubusercontent.com/dandavison/delta/main/themes.gitconfig -O ~/.config/delta/themes.gitconfig
 [include]
     path = ~/.config/delta/themes.gitconfig
+[safe]
+	directory = *
+	directory = *
+	directory = *
+	directory = *
+	directory = *
+	directory = *
+[credential "https://github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential
