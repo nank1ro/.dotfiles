@@ -55,3 +55,11 @@ local function smart_open()
   vim.ui.open(vim.fn.expand("<cfile>"))
 end
 map({ "n", "t" }, "gx", smart_open, { desc = "Open URL under cursor" })
+
+-- Toggle GitHub Copilot inline suggestions (native LSP)
+vim.api.nvim_create_user_command("CopilotToggle", function()
+  local ic = vim.lsp.inline_completion
+  ic.enable(not ic.is_enabled())
+  vim.notify("Copilot " .. (ic.is_enabled() and "enabled" or "disabled"))
+end, { desc = "Toggle Copilot" })
+map("n", "<leader>ap", "<cmd>CopilotToggle<cr>", { desc = "Toggle Copilot" })
