@@ -16,11 +16,6 @@
     path = ~/.config/delta/themes.gitconfig
 [safe]
 	directory = *
-	directory = *
-	directory = *
-	directory = *
-	directory = *
-	directory = *
 [credential "https://github.com"]
 	helper = 
 	helper = !/opt/homebrew/bin/gh auth git-credential
