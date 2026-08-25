@@ -155,6 +155,11 @@ restore_file "$REPO_ROOT/finicky/finicky.js" "$HOME/.config/finicky/finicky.js"
 # gitconfig
 restore_file "$REPO_ROOT/.gitconfig" "$HOME/.gitconfig"
 
+# reclaim CLI — restore, then ensure the executable bit (cp may drop it, and a
+# non-executable script silently won't run from PATH).
+restore_file "$REPO_ROOT/bin/reclaim" "$HOME/.local/bin/reclaim"
+[ -f "$HOME/.local/bin/reclaim" ] && chmod +x "$HOME/.local/bin/reclaim"
+
 # git hooks: arm the tracked pre-commit hook on this clone (git never clones .git/hooks/)
 arm_hooks
 

@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+usage() { cat <<'EOF'
+reclaim — free disk by clearing regenerable dev caches & build artifacts.
+
+Clears: npm/pnpm/yarn/pub/gradle/cargo/go/CocoaPods caches, ~/.cache,
+Flutter build artifacts, Xcode DerivedData + DeviceSupport, Homebrew old
+versions, ALL unused Docker images, ~/Library/Caches, ~/Library/Logs,
+Xcode Archives, and the Trash.
+
+Never touches: source code, browser profiles, SDK-matched simulator runtimes,
+installed CLI binaries (~/.cargo/bin, ~/.pub-cache/bin), or JetBrains/Android
+Studio Local History.
+
+Usage:
+  reclaim            confirm, then clean
+  reclaim -y         skip the prompt (cron-safe)
+  reclaim --deep     ALSO remove node_modules + Python .venv across ~/github
+                     (regenerable, but forces reinstall in ALL projects)
+EOF
+}
+
+GH="${HOME:?}/github"
+YES=0; DEEP=0
+for a in "$@"; do
+  case "$a" in
+    -y|--yes)  YES=1 ;;
+    --deep)    DEEP=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown option: $a (try --help)"; exit 1 ;;
+  esac
+done
+
+sp()   { df -h /System/Volumes/Data 2>/dev/null | tail -1 | awk '{print "   -> "$4" free ("$5" used)"}'; }
+have() { command -v "$1" >/dev/null 2>&1; }
+step() { printf '[%s]\n' "$1"; }
+
+XCODE_RUNNING=0; pgrep -xq Xcode && XCODE_RUNNING=1
+
+echo "reclaim: clears dev caches, build artifacts, Docker images, Xcode DerivedData,"
+echo "         DeviceSupport, ~/Library/Caches & Logs, Xcode Archives, and Trash."
+echo "         Keeps source, browsers, simulator runtimes, installed CLIs, IDE history."
+[[ $DEEP == 1 ]] && echo "         --deep: also node_modules + .venv across ~/github"
+echo
+if [[ $XCODE_RUNNING == 1 ]]; then
+  echo "!! Xcode is running — skipping DerivedData & DeviceSupport (quit Xcode to include)."; echo
+fi
+if [[ $YES == 0 ]]; then
+  read -r -p "Proceed? [y/N] " ans || ans=""
+  [[ "${ans:-}" == [yY]* ]] || { echo "Aborted."; exit 0; }
+fi
+echo; echo "START:"; sp; echo
+
+# --- JavaScript / TypeScript ---
+have npm  && { step "npm cache";        npm cache clean --force >/dev/null 2>&1; sp; }
+have pnpm && { step "pnpm store prune";  pnpm store prune       >/dev/null 2>&1; sp; }
+have yarn && { step "yarn cache clean";  yarn cache clean       >/dev/null 2>&1; sp; }
+
+# --- generic user cache (whole ~/.cache; may include ML/tool caches, all regenerable) ---
+step "~/.cache"; rm -rf "${HOME:?}/.cache/"* 2>/dev/null; sp
+
+# --- Dart / Flutter ---
+step "Flutter build/.dart_tool in ~/github (pubspec-guarded)"
+if [[ -d "$GH" ]]; then
+  while IFS= read -r p; do d=$(dirname "$p"); rm -rf "$d/build" "$d/.dart_tool" 2>/dev/null; done \
+    < <(find "$GH" -maxdepth 4 -name pubspec.yaml -not -path "*/build/*" 2>/dev/null)
+fi; sp
+# download caches only — keep ~/.pub-cache/bin + global_packages (activated CLIs)
+step "pub-cache downloads (keeps global CLIs)"
+rm -rf "${HOME:?}/.pub-cache/hosted" "${HOME:?}/.pub-cache/git" 2>/dev/null; sp
+
+# --- iOS / macOS (CocoaPods + Xcode) ---
+have pod && { step "CocoaPods cache"; pod cache clean --all >/dev/null 2>&1; sp; }
+if [[ $XCODE_RUNNING == 0 ]]; then
+  step "Xcode DerivedData"; rm -rf "${HOME:?}/Library/Developer/Xcode/DerivedData/"* 2>/dev/null; sp
+  step "iOS/watchOS DeviceSupport + CoreSimulator caches (regenerate on device connect)"
+  rm -rf "${HOME:?}/Library/Developer/Xcode/iOS DeviceSupport/"* \
+         "${HOME:?}/Library/Developer/Xcode/watchOS DeviceSupport/"* \
+         "${HOME:?}/Library/Developer/CoreSimulator/Caches/"* 2>/dev/null
+  have xcrun && xcrun simctl delete unavailable >/dev/null 2>&1; sp
+fi
+# Xcode Archives (opted in — these include release-build dSYMs for crash symbolication)
+step "Xcode Archives"; rm -rf "${HOME:?}/Library/Developer/Xcode/Archives/"* 2>/dev/null; sp
+
+# --- Go / Rust ---
+have go    && { step "Go build+module cache"; go clean -cache -modcache >/dev/null 2>&1; sp; }
+have cargo && { step "Cargo registry/git cache (keeps ~/.cargo/bin & config)"
+  rm -rf "${HOME:?}/.cargo/registry/cache" "${HOME:?}/.cargo/registry/src" \
+         "${HOME:?}/.cargo/git/checkouts" "${HOME:?}/.cargo/git/db" 2>/dev/null; sp; }
+
+# --- Android / Gradle ---
+step "gradle caches"; rm -rf "${HOME:?}/.gradle/caches" 2>/dev/null; sp
+
+# --- Homebrew ---
+have brew && { step "brew cleanup"; brew cleanup --prune=all >/dev/null 2>&1; sp; }
+
+# --- Docker / OrbStack (removes ALL unused images, not just dangling) ---
+have docker && { step "docker image prune -a"; docker image prune -a -f >/dev/null 2>&1; sp; }
+
+# --- system caches & logs ---
+# Wipe ~/Library/Caches, but skip JetBrains/Android Studio dirs so their
+# LocalHistory (per-file IDE edit history — NOT regenerable) survives.
+step "~/Library/Caches (keeping IDE dirs for LocalHistory)"
+find "${HOME:?}/Library/Caches" -mindepth 1 -maxdepth 1 \
+     ! -name JetBrains ! -name Google ! -name 'AndroidStudio*' \
+     -exec rm -rf {} + 2>/dev/null; sp
+step "~/Library/Logs"; rm -rf "${HOME:?}/Library/Logs/"* 2>/dev/null; sp
+
+# --- Trash (opted in — irreversible) ---
+step "Trash"; rm -rf "${HOME:?}/.Trash/"* 2>/dev/null; sp
+
+# --- deep (opt-in): project dependencies ---
+if [[ $DEEP == 1 && -d "$GH" ]]; then
+  step "node_modules across ~/github (--deep)"
+  find "$GH" -type d -name node_modules -prune -exec rm -rf {} + 2>/dev/null; sp
+  step "Python .venv across ~/github (--deep)"
+  find "$GH" -type d -name .venv -prune -exec rm -rf {} + 2>/dev/null; sp
+fi
+
+echo; echo "DONE."; sp

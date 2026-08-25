@@ -140,6 +140,19 @@ else
   echo "⚠ Skipping gitconfig: source file not found"
 fi
 
+# Sync reclaim CLI
+if [ -f "$HOME/.local/bin/reclaim" ]; then
+  mkdir -p "$REPO_ROOT/bin"
+  cp "$HOME/.local/bin/reclaim" "$REPO_ROOT/bin/reclaim"
+
+  if [ -n "$(git status --porcelain bin/)" ]; then
+    echo "✓ Synced reclaim CLI"
+    has_changes=true
+  fi
+else
+  echo "⚠ Skipping reclaim: source file not found"
+fi
+
 if [ "$has_changes" = false ]; then
   echo "✓ All configs already up to date"
 fi

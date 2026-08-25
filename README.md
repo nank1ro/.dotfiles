@@ -54,5 +54,6 @@ so the sync-on-commit works on a fresh machine. New machine: `git clone …` →
 | ghostty | `~/.config/ghostty/config` | `ghostty/config` |
 | finicky | `~/.config/finicky/finicky.js` | `finicky/finicky.js` |
 | gitconfig | `~/.gitconfig` | `.gitconfig` |
+| reclaim | `~/.local/bin/reclaim` | `bin/reclaim` |
 
 > The `nvim` config is deprecated and has been moved to [here](https://github.com/nank1ro/nvim_config).
