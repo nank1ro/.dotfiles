@@ -1,5 +1,3 @@
-# Added by ForgeCode installer
-export PATH="/Users/ale/.local/bin:$PATH"
 export ZSH="$HOME/.oh-my-zsh"
 export PATH="$PATH:$HOME/fvm/default/bin"
 export PATH="$PATH":"$HOME/fvm/versions/stable/bin/cache/dart-sdk/bin"
@@ -160,8 +158,8 @@ source /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 export PYENV_ROOT="$HOME/.pyenv"
 export PATH="$PYENV_ROOT/bin:$PATH"
 if command -v pyenv 1>/dev/null 2>&1; then
-  eval "$(pyenv init --path)"
-  eval "$(pyenv init -)"
+  eval "$(pyenv init --path --no-rehash)"
+  eval "$(pyenv init - --no-rehash)"
 fi
 
 # nvm for multiple node versions

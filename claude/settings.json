@@ -61,5 +61,6 @@
   "skipAutoPermissionPrompt": true,
   "preferences": {
     "secureVmFeaturesEnabled": false
-  }
+  },
+  "tui": "fullscreen"
 }
