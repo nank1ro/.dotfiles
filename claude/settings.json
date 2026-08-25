@@ -15,12 +15,13 @@
   },
   "model": "claude-fable-5",
   "hooks": {
-    "Stop": [
+    "PreToolUse": [
       {
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/ale/.claude/hooks/review-gate.sh"
+            "command": "/Users/ale/.claude/hooks/commit-review-gate.sh"
           }
         ]
       }

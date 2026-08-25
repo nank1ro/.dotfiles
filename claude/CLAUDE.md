@@ -62,17 +62,18 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
-## 5. Adversarial Review (mandatory gate, all models)
+## 5. Adversarial Review (gated at the commit boundary, all models)
 
-**A code change is NOT done when tests pass.** It is done when: tests pass AND ≥2 adversarial reviewers have reviewed the diff AND accepted findings are applied. Passing your own tests never substitutes for review.
+**A code change is NOT proven by passing tests.** It is reviewed when ≥2 adversarial reviewers have examined the diff AND accepted findings are applied. Passing your own tests never substitutes for review.
 
-**TRIGGER — before you tell the user a non-trivial code change is done, finished, verified, working, or ready:**
-- Launch ≥2 reviewers in parallel on the diff. Give them the diff plus repo read access to verify, but NOT your plan or reasoning. Their only job: find bugs and reasons it does not work. They must not implement.
+**WHEN — review is gated at the `git commit` boundary, not at "done".** During iterative work, do NOT self-launch reviews or block on them — keep moving so the user can give feedback mid-flight. Enforcement is the `commit-review-gate` PreToolUse hook: a `git commit` of non-trivial staged code is blocked until reviewed. When it blocks (or before you commit non-trivial changes), run the `commit-review` skill, which is the single review pass:
+- Launch ≥2 reviewers in parallel on the STAGED diff. Give them the diff plus repo read access to verify, but NOT your plan or reasoning. Their only job: find bugs and reasons it does not work. They must not implement.
 - You (the implementer) do not review your own change and do not defend it.
-- A separate third agent applies accepted findings; the reviewers stay adversarial (never invested in a fix).
-- Only then report done — and state that review ran and what it found.
+- A separate fix agent applies accepted findings; the reviewers stay adversarial (never invested in a fix).
+- Then a confirm-only pass checks just those fixes — never a fresh full re-hunt (the re-hunt IS the treadmill). One review round + one confirm, max; if the confirm finds the fixes broke something, surface to the user instead of looping.
+- The skill clears the gate as its final step; then report that review ran and what it found.
 
-Trivial = docs/comments/formatting/one-line rename with no runtime surface. Everything else is non-trivial. When unsure, review.
+Trivial = docs/comments/formatting/one-line rename with no runtime surface; the gate likewise lets docs/lockfile/test-only and non-source commits through without review. Everything else is non-trivial. When unsure, review.
 
 **Sub-agent safety:** sub-agents must never run `git stash`, `git reset`, or other destructive/slow commands — parallel agents share the working tree and would trample each other's changes.
 

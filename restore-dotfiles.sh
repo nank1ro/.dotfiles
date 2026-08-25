@@ -140,6 +140,14 @@ restore_file "$REPO_ROOT/.tmux.conf" "$HOME/.tmux.conf"
 restore_file "$REPO_ROOT/claude/settings.json" "$HOME/.claude/settings.json"
 restore_file "$REPO_ROOT/claude/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
 
+# claude commit-review gate (hooks + skill). The .sh is invoked directly by the
+# PreToolUse hook, so it must stay executable (cp drops the bit).
+restore_file "$REPO_ROOT/claude/hooks/commit-review-gate.sh" "$HOME/.claude/hooks/commit-review-gate.sh"
+restore_file "$REPO_ROOT/claude/hooks/commit-review-gate.py" "$HOME/.claude/hooks/commit-review-gate.py"
+[ -f "$HOME/.claude/hooks/commit-review-gate.sh" ] && chmod +x "$HOME/.claude/hooks/commit-review-gate.sh"
+[ -f "$HOME/.claude/hooks/commit-review-gate.py" ] && chmod +x "$HOME/.claude/hooks/commit-review-gate.py"
+restore_file "$REPO_ROOT/claude/skills/commit-review/SKILL.md" "$HOME/.claude/skills/commit-review/SKILL.md"
+
 # wezterm
 restore_file "$REPO_ROOT/.wezterm.lua" "$HOME/.wezterm.lua"
 

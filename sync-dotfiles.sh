@@ -78,6 +78,33 @@ for cfile in settings.json CLAUDE.md; do
   fi
 done
 
+# Sync claude commit-review gate (PreToolUse hook scripts + skill)
+mkdir -p "$claude_dir/hooks"
+for hf in commit-review-gate.sh commit-review-gate.py; do
+  if [ -f "$HOME/.claude/hooks/$hf" ]; then
+    cp "$HOME/.claude/hooks/$hf" "$claude_dir/hooks/$hf"
+
+    if [ -n "$(git status --porcelain "claude/hooks/$hf")" ]; then
+      echo "✓ Synced claude/hooks/$hf"
+      has_changes=true
+    fi
+  else
+    echo "⚠ Skipping claude/hooks/$hf: source file not found"
+  fi
+done
+
+mkdir -p "$claude_dir/skills/commit-review"
+if [ -f "$HOME/.claude/skills/commit-review/SKILL.md" ]; then
+  cp "$HOME/.claude/skills/commit-review/SKILL.md" "$claude_dir/skills/commit-review/SKILL.md"
+
+  if [ -n "$(git status --porcelain "claude/skills/commit-review/SKILL.md")" ]; then
+    echo "✓ Synced claude/skills/commit-review/SKILL.md"
+    has_changes=true
+  fi
+else
+  echo "⚠ Skipping claude/skills/commit-review/SKILL.md: source file not found"
+fi
+
 # Sync wezterm config
 if [ -f "$HOME/.wezterm.lua" ]; then
   cp "$HOME/.wezterm.lua" "$REPO_ROOT/.wezterm.lua"
