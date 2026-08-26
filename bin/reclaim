@@ -35,6 +35,10 @@ done
 sp()   { df -h /System/Volumes/Data 2>/dev/null | tail -1 | awk '{print "   -> "$4" free ("$5" used)"}'; }
 have() { command -v "$1" >/dev/null 2>&1; }
 step() { printf '[%s]\n' "$1"; }
+# Run external tools with NO stdin, so nothing (e.g. Corepack's pnpm/yarn download
+# prompt) can silently block the script waiting on an invisible confirmation.
+export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+run() { "$@" </dev/null >/dev/null 2>&1; }
 
 XCODE_RUNNING=0; pgrep -xq Xcode && XCODE_RUNNING=1
 
@@ -53,9 +57,9 @@ fi
 echo; echo "START:"; sp; echo
 
 # --- JavaScript / TypeScript ---
-have npm  && { step "npm cache";        npm cache clean --force >/dev/null 2>&1; sp; }
-have pnpm && { step "pnpm store prune";  pnpm store prune       >/dev/null 2>&1; sp; }
-have yarn && { step "yarn cache clean";  yarn cache clean       >/dev/null 2>&1; sp; }
+have npm  && { step "npm cache";        run npm cache clean --force; sp; }
+have pnpm && { step "pnpm store prune";  run pnpm store prune;       sp; }
+have yarn && { step "yarn cache clean";  run yarn cache clean;       sp; }
 
 # --- generic user cache (whole ~/.cache; may include ML/tool caches, all regenerable) ---
 step "~/.cache"; rm -rf "${HOME:?}/.cache/"* 2>/dev/null; sp
@@ -71,20 +75,20 @@ step "pub-cache downloads (keeps global CLIs)"
 rm -rf "${HOME:?}/.pub-cache/hosted" "${HOME:?}/.pub-cache/git" 2>/dev/null; sp
 
 # --- iOS / macOS (CocoaPods + Xcode) ---
-have pod && { step "CocoaPods cache"; pod cache clean --all >/dev/null 2>&1; sp; }
+have pod && { step "CocoaPods cache"; run pod cache clean --all; sp; }
 if [[ $XCODE_RUNNING == 0 ]]; then
   step "Xcode DerivedData"; rm -rf "${HOME:?}/Library/Developer/Xcode/DerivedData/"* 2>/dev/null; sp
   step "iOS/watchOS DeviceSupport + CoreSimulator caches (regenerate on device connect)"
   rm -rf "${HOME:?}/Library/Developer/Xcode/iOS DeviceSupport/"* \
          "${HOME:?}/Library/Developer/Xcode/watchOS DeviceSupport/"* \
          "${HOME:?}/Library/Developer/CoreSimulator/Caches/"* 2>/dev/null
-  have xcrun && xcrun simctl delete unavailable >/dev/null 2>&1; sp
+  have xcrun && run xcrun simctl delete unavailable; sp
 fi
 # Xcode Archives (opted in — these include release-build dSYMs for crash symbolication)
 step "Xcode Archives"; rm -rf "${HOME:?}/Library/Developer/Xcode/Archives/"* 2>/dev/null; sp
 
 # --- Go / Rust ---
-have go    && { step "Go build+module cache"; go clean -cache -modcache >/dev/null 2>&1; sp; }
+have go    && { step "Go build+module cache"; run go clean -cache -modcache; sp; }
 have cargo && { step "Cargo registry/git cache (keeps ~/.cargo/bin & config)"
   rm -rf "${HOME:?}/.cargo/registry/cache" "${HOME:?}/.cargo/registry/src" \
          "${HOME:?}/.cargo/git/checkouts" "${HOME:?}/.cargo/git/db" 2>/dev/null; sp; }
@@ -93,10 +97,10 @@ have cargo && { step "Cargo registry/git cache (keeps ~/.cargo/bin & config)"
 step "gradle caches"; rm -rf "${HOME:?}/.gradle/caches" 2>/dev/null; sp
 
 # --- Homebrew ---
-have brew && { step "brew cleanup"; brew cleanup --prune=all >/dev/null 2>&1; sp; }
+have brew && { step "brew cleanup"; run brew cleanup --prune=all; sp; }
 
 # --- Docker / OrbStack (removes ALL unused images, not just dangling) ---
-have docker && { step "docker image prune -a"; docker image prune -a -f >/dev/null 2>&1; sp; }
+have docker && { step "docker image prune -a"; run docker image prune -a -f; sp; }
 
 # --- system caches & logs ---
 # Wipe ~/Library/Caches, but skip JetBrains/Android Studio dirs so their
