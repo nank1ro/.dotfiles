@@ -72,6 +72,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - A separate fix agent applies accepted findings; the reviewers stay adversarial (never invested in a fix).
 - Then a confirm-only pass checks just those fixes — never a fresh full re-hunt (the re-hunt IS the treadmill). One review round + one confirm, max; if the confirm finds the fixes broke something, surface to the user instead of looping.
 - The skill clears the gate as its final step; then report that review ran and what it found.
+- Review ledgers (`.context/reviews/*.md`) are a LOCAL-ONLY audit trail, in every repo: never `git add` or commit them, and keep `.context/` in `.git/info/exclude` (Ale, 2026-08-26 — they were polluting a PR).
 
 Trivial = docs/comments/formatting/one-line rename with no runtime surface; the gate likewise lets docs/lockfile/test-only and non-source commits through without review. Everything else is non-trivial. When unsure, review.
 

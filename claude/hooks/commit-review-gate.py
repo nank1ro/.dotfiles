@@ -191,6 +191,12 @@ def strip_leading(toks):
             break
     return out
 
+# Redirections (>f, >>f, 2>&1, 2>/dev/null, &>f, <in, ...). shlex keeps an
+# attached target in the same token; a bare operator (">", "2>") takes the
+# FOLLOWING token as its target. Either form is a redirection, never a pathspec.
+REDIR = re.compile(r"^&?\d*(?:>>?|<<?|<>|>&|<&)")
+REDIR_BARE = re.compile(r"^&?\d*(?:>>?|<<?|<>|>&|<&)$")
+
 def scan_commit_args(rest):
     dry = amend = stages = pathspec = False
     saw_dd = False
@@ -203,8 +209,10 @@ def scan_commit_args(rest):
             saw_dd = True; k += 1; continue
         if not t:
             k += 1; continue
-        if t[0] in "<>":            # redirection operator/target -> not a pathspec
-            k += 1; continue
+        if REDIR.match(t):          # redirection (>f, 2>&1, &>f, ...) -> not a pathspec
+            # a bare operator ("2>", ">") consumes the following token as its target
+            k += 2 if REDIR_BARE.match(t) else 1
+            continue
         if t.startswith("--"):
             opt = t.split("=", 1)[0]
             if opt == "--dry-run": dry = True
