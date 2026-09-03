@@ -1,6 +1,6 @@
 ---
 name: commit-review
-description: Run the mandatory adversarial review at the git commit boundary and clear the commit-review gate. Invoke when the commit-review gate denies a `git commit`, or before committing non-trivial source changes. Runs >=2 adversarial reviewers in parallel on the staged diff, routes accepted findings to a separate fix agent, does a confirm-only pass, writes the review ledger, then clears the gate so a plain `git commit` proceeds.
+description: Run the mandatory adversarial review at the git commit boundary and clear the commit-review gate. Invoke when the commit-review gate denies a `git commit`. Runs >=2 adversarial correctness reviewers plus one `/ponytail-review` over-engineering lane in parallel on the staged diff, routes accepted findings to a separate fix agent, does a confirm-only pass, writes the review ledger, then clears the gate so a plain `git commit` proceeds.
 ---
 
 # commit-review
@@ -33,8 +33,17 @@ do not loop.
    - Their only job: find bugs and concrete reasons the change is wrong or won't work.
      They report findings; **they do not implement**.
    Scope them strictly to the staged diff — no whole-repo rewrites of scope.
+   In the SAME parallel batch (one message, all Task calls concurrent — the ponytail
+   lane adds NO serial latency, it runs alongside; wall-clock is the slowest single
+   reviewer, not the sum), add ONE over-engineering lane. Brief it to **invoke the
+   `/ponytail-review` skill** on the staged diff; if that subagent lacks Skill access,
+   fall back to the same criteria inline — tags `delete:/stdlib:/native:/yagni:/shrink:`,
+   one line each, ending with `net: -<N> lines possible.` (or `Lean already. Ship.`).
+   It only reports a delete-list, never implements. So the batch is >=2 correctness
+   reviewers + 1 ponytail lane, all fired concurrently in one message.
 
-3. **Adjudicate + fix.** You (orchestrator) decide which findings are real. Route the
+3. **Adjudicate + fix.** You (orchestrator) decide which findings are real — correctness
+   bugs AND accepted deletions/simplifications from the ponytail lane. Route the
    ACCEPTED findings to a SEPARATE fix agent (not a reviewer, not yourself-as-reviewer).
    If zero findings are accepted, skip to step 5.
 

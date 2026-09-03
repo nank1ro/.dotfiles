@@ -5,8 +5,6 @@
     "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
     "DISABLE_TELEMETRY": "1",
     "DO_NOT_TRACK": "1",
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8787/w/claude",
-    "_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL": "1",
     "ENABLE_TOOL_SEARCH": "auto"
   },
   "attribution": {
@@ -16,7 +14,7 @@
   "permissions": {
     "defaultMode": "auto"
   },
-  "model": "claude-fable-5",
+  "model": "fable",
   "hooks": {
     "PreToolUse": [
       {
@@ -25,122 +23,6 @@
           {
             "type": "command",
             "command": "/Users/ale/.claude/hooks/commit-review-gate.sh"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "'/Users/ale/.caveman/bin/caveman-proxy' native-hook claude --adapter '/Users/ale/.nvm/versions/node/v22.22.2/lib/node_modules/@caveman-ai/cli/dist/native-hook-fast.js'"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "'/Users/ale/.nvm/versions/node/v22.22.2/bin/caveman' shrink-hook"
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "'/Users/ale/.caveman/bin/caveman-proxy' native-hook claude --adapter '/Users/ale/.nvm/versions/node/v22.22.2/lib/node_modules/@caveman-ai/cli/dist/native-hook-fast.js'"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "'/Users/ale/.caveman/bin/caveman-proxy' native-hook claude --adapter '/Users/ale/.nvm/versions/node/v22.22.2/lib/node_modules/@caveman-ai/cli/dist/native-hook-fast.js'"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "'/Users/ale/.caveman/bin/caveman-proxy' native-hook claude --adapter '/Users/ale/.nvm/versions/node/v22.22.2/lib/node_modules/@caveman-ai/cli/dist/native-hook-fast.js'"
-          }
-        ]
-      }
-    ],
-    "PostToolUseFailure": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "'/Users/ale/.caveman/bin/caveman-proxy' native-hook claude --adapter '/Users/ale/.nvm/versions/node/v22.22.2/lib/node_modules/@caveman-ai/cli/dist/native-hook-fast.js'"
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "'/Users/ale/.caveman/bin/caveman-proxy' native-hook claude --adapter '/Users/ale/.nvm/versions/node/v22.22.2/lib/node_modules/@caveman-ai/cli/dist/native-hook-fast.js'"
-          }
-        ]
-      }
-    ],
-    "PostCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "'/Users/ale/.caveman/bin/caveman-proxy' native-hook claude --adapter '/Users/ale/.nvm/versions/node/v22.22.2/lib/node_modules/@caveman-ai/cli/dist/native-hook-fast.js'"
-          }
-        ]
-      }
-    ],
-    "SubagentStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "'/Users/ale/.caveman/bin/caveman-proxy' native-hook claude --adapter '/Users/ale/.nvm/versions/node/v22.22.2/lib/node_modules/@caveman-ai/cli/dist/native-hook-fast.js'"
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "'/Users/ale/.caveman/bin/caveman-proxy' native-hook claude --adapter '/Users/ale/.nvm/versions/node/v22.22.2/lib/node_modules/@caveman-ai/cli/dist/native-hook-fast.js'"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "'/Users/ale/.caveman/bin/caveman-proxy' native-hook claude --adapter '/Users/ale/.nvm/versions/node/v22.22.2/lib/node_modules/@caveman-ai/cli/dist/native-hook-fast.js'"
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "'/Users/ale/.caveman/bin/caveman-proxy' native-hook claude --adapter '/Users/ale/.nvm/versions/node/v22.22.2/lib/node_modules/@caveman-ai/cli/dist/native-hook-fast.js'"
           }
         ]
       }

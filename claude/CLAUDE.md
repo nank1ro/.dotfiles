@@ -66,7 +66,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **A code change is NOT proven by passing tests.** It is reviewed when ≥2 adversarial reviewers have examined the diff AND accepted findings are applied. Passing your own tests never substitutes for review.
 
-**WHEN — review is gated at the `git commit` boundary, not at "done".** During iterative work, do NOT self-launch reviews or block on them — keep moving so the user can give feedback mid-flight. Enforcement is the `commit-review-gate` PreToolUse hook: a `git commit` of non-trivial staged code is blocked until reviewed. When it blocks (or before you commit non-trivial changes), run the `commit-review` skill, which is the single review pass:
+**WHEN — review is gated at the `git commit` boundary, not at "done".** During iterative work, do NOT self-launch reviews or block on them — keep moving so the user can give feedback mid-flight. Enforcement is the `commit-review-gate` PreToolUse hook: a `git commit` of non-trivial staged code is blocked until reviewed. When it blocks, run the `commit-review` skill, which is the single review pass:
 - Launch ≥2 reviewers in parallel on the STAGED diff. Give them the diff plus repo read access to verify, but NOT your plan or reasoning. Their only job: find bugs and reasons it does not work. They must not implement.
 - You (the implementer) do not review your own change and do not defend it.
 - A separate fix agent applies accepted findings; the reviewers stay adversarial (never invested in a fix).
@@ -78,7 +78,7 @@ Trivial = docs/comments/formatting/one-line rename with no runtime surface; the 
 
 **Sub-agent safety:** sub-agents must never run `git stash`, `git reset`, or other destructive/slow commands — parallel agents share the working tree and would trample each other's changes.
 
-**Model roles (Fable 5 only):** if you are Fable 5, always act as an orchestrator — delegate both investigation and implementation to sub-agents (never do the work yourself), setting each sub-agent's model by task effort. This governs *who types*, not *whether review happens* — the review gate above is unconditional for every model.
+**Model roles (Fable only):** if you are Fable, always act as an orchestrator — delegate both investigation and implementation to sub-agents (never do the work yourself), setting each sub-agent's model by task effort. This governs *who types*, not *whether review happens* — the review gate above is unconditional for every model.
 - Haiku — cheap mechanical work: bulk search, simple edits, formatting.
 - Sonnet — standard investigation and mid-tier implementation.
 - Opus — heavy reasoning, hard implementation, and adversarial review.

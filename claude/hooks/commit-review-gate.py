@@ -34,17 +34,12 @@ TRIVIAL_EXT = re.compile(
 TRIVIAL_NAME = re.compile(
     r"(^|/)(LICENSE|CHANGELOG|README)[^/]*$"
     r"|(^|/)\.gitignore$"
+    r"|(^|/)pubspec\.ya?ml$"
     r"|(^|/)(package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml)$", re.I)
 TRIVIAL_TEST = re.compile(
     r"(^|/)(tests?|__tests__|spec|specs|fixtures?|testdata|__mocks__|goldens)/"
     r"|_test\.|(^|/)test_|\.test\.|\.spec\.", re.I)
 TRIVIAL_CTX = re.compile(r"(^|/)\.context/")
-
-# Content-aware trivial case: a pubspec whose STAGED diff touches only the
-# top-level `version:` field (a release bump) has no runtime surface. Dependency
-# / SDK / any other line changes are NOT covered — those keep needing review.
-PUBSPEC_RE = re.compile(r"(^|/)pubspec\.yaml$")
-VERSION_LINE_RE = re.compile(r"^[+-]version:\s*\S")
 
 def is_trivial(path):
     return bool(TRIVIAL_EXT.search(path) or TRIVIAL_NAME.search(path)
@@ -110,30 +105,8 @@ def _raw_nontrivial(root, ref_args):
             paths.append(path)
     return paths
 
-def _pubspec_version_only(root, path):
-    """True iff `path`'s STAGED diff changes only the top-level `version:` field.
-    Fails closed (False -> treated as non-trivial) on any git error."""
-    rc, out = git(root, "diff", "--cached", "--unified=0", "--", path)
-    if rc != 0:
-        return False
-    changed = 0
-    for line in out.splitlines():
-        if line[:3] in ("+++", "---"):     # file headers, not content
-            continue
-        if line and line[0] in "+-":
-            if not VERSION_LINE_RE.match(line):
-                return False               # a non-version line changed
-            changed += 1
-    return changed > 0
-
 def nontrivial_staged(root):
-    paths = _raw_nontrivial(root, ["--cached"])
-    if paths is None:
-        return None
-    # Drop pubspecs whose staged change is a pure `version:` bump (no runtime
-    # surface). Everything is_trivial() already excluded stays excluded.
-    return [p for p in paths
-            if not (PUBSPEC_RE.search(p) and _pubspec_version_only(root, p))]
+    return _raw_nontrivial(root, ["--cached"])
 
 def any_nontrivial_worktree(root):
     """True if the working tree has ANY non-trivial change (staged/unstaged/
