@@ -1,68 +1,69 @@
 ---
 name: commit-review
-description: Review staged code at the commit boundary using independent native Codex, Claude Code, and OpenCode sessions. Use when preparing a non-trivial commit or when the commit-review gate blocks one. Includes two correctness reviewers, a GLM simplification lane, adjudication, a separate fix worker, one confirmation pass, and staged-content clearance.
+description: Review staged code at agent-commit time with an independent Astra session and fresh Fable fallback on usage limits. Covers correctness and simplicity, adjudication, a separate fix worker, one confirmation pass, and staged-content clearance. Human commits and routine bookkeeping are exempt.
 ---
 
 # Commit review
 
-Use the installed `/Users/ale/.local/bin/agent-review` command. It runs native CLI
-sessions using the user's existing subscriptions. Do not replace them with direct
-API calls, a proxy, or the parent agent's same-conversation self-review.
+Use `/Users/ale/.local/bin/agent-review` and the native subscription CLIs. Fable
+normally writes the code; Astra independently reviews it. GLM is for chores and
+easy tasks and is never selected as a reviewer or used to clear this gate.
 
-Only an actual agent-commit attempt triggers this workflow. Human commits in
-Lazygit or a terminal do not trigger AI review. Do not run it after a turn,
-on stop, on save, or while the user is iterating. Stage intended files and attempt
-the authorized commit with `/Users/ale/.local/bin/agent-commit -m "message"`;
-that checked command requests review when appropriate. Never use raw git commit
-for agent-made commits.
-The review command itself does not commit or push.
+Only an actual `agent-commit` attempt triggers this workflow. Human commits in
+Lazygit or a terminal use normal Git hooks without AI review. Do not review on save,
+on stop, after each turn, or while the user is iterating. The review command itself
+does not commit or push.
 
-1. Stage only the intended files. Verify `git diff --cached --stat`. Write the
-   user's requirements/acceptance criteria to a local file if the diff needs
-   context. Do not include the implementer's plan or explanation.
-2. Run `agent-review start --author fable` from the repository (or `--author astra`
-   when Astra implemented; `--author glm` when GLM implemented). Optionally pass
-   `--requirements /absolute/path/to/requirements.txt`. The runner freezes the
-   staged tree and launches two correctness lanes plus GLM simplification in
-   parallel. Normally correctness is Astra and fresh Opus; if Astra authored the
-   change, correctness is Fable and fresh Opus. No reviewer edits or delegates.
-3. Read each report in the printed review directory. Adjudicate concrete findings.
-   In `decisions.json`, mark each finding `fixed` or `rejected` and supply a reason
-   backed by evidence. Never reject a finding only to clear the gate. Zero findings
-   is valid; do not manufacture work.
-4. Send accepted findings to a separate fix worker with an explicit scope, using
-   available subagent tools or a new native CLI session. Do not use either reviewer
-   as the fixer. Allow only one writer in this worktree. Record the worker's model
-   and session/task identifier in `decisions.json`'s `fixer` field. Stage its fixes
-   explicitly and run relevant validation. If there are no accepted findings, skip
-   this step. GLM is suitable for bounded mechanical fixes; use a stronger worker
-   when correctness requires it.
-5. Run `agent-review finish /absolute/path/to/review-directory`. Changed staged
-   content triggers exactly one confirmation pass restricted to accepted fixes.
-   Provider errors, malformed reports, missing dispositions, changed HEAD, stale
-   staged content, or failed confirmation do not clear review. If confirmation
-   fails, surface the remaining issue; do not rerun a whole review to start a loop.
-6. Once cleared, run `agent-commit -m "message"` as a separate shell call when the
-   commit is authorized. It preserves existing Git hooks and checks the staged tree
-   again after hooks run. No `-a`, pathspecs, or chained staging. Push only within
-   the user's authorized scope.
+1. Stage only intended files and inspect `git diff --cached --stat`. Attempt the
+   authorized commit with `/Users/ale/.local/bin/agent-commit -m "message"`. Routine
+   documentation, lockfiles and known manifest/config bookkeeping may skip review.
+   Any source/test file or substantive/unfamiliar configuration triggers the gate,
+   including when mixed with exempt files. Agents must use agent-commit, not raw Git.
+2. When blocked, run `agent-review start --author fable`. Use `--author astra` or
+   `--author glm` when appropriate. Optionally pass `--requirements /absolute/path`:
+   include the user's requirements, not the implementer's reasoning. The runner
+   freezes the staged tree and obtains one independent review covering correctness
+   and simplicity. Astra is first; a fresh Fable session is the quota/rate fallback.
+   If Astra wrote the change, the order is Fable then a fresh Astra session instead.
+3. Read the report and its actual reviewer/attempt history. Adjudicate every finding
+   in the printed `decisions.json`: use `fixed` or `rejected`, with evidence. Do not
+   manufacture findings or reject them merely to clear the gate.
+4. Have a separate fix worker apply accepted findings with an explicit scope and
+   one writer per worktree. Record its model and session/task ID in `fixer`. Fable
+   or Astra handles correctness work; GLM is suitable only for simple mechanical
+   chores. Stage accepted fixes explicitly and run relevant validation. Skip this
+   step if no findings are accepted.
+5. Run `agent-review finish /absolute/path/to/review-directory`. Changed content
+   receives at most one confirmation pass restricted to the accepted fixes. This
+   also prefers Astra with fresh Fable fallback. If confirmation fails, report the
+   issue rather than starting another full review or confirmation loop.
+6. Once cleared, run `agent-commit -m "message"` separately when authorized. Existing
+   repository hooks still run; the exact staged tree and HEAD are checked after
+   hooks. No -a, pathspecs, chained staging, --no-verify, or push without authorization.
 
-All reports, frozen snapshots, decisions and ledgers live under the worktree's
-private Git directory (`git rev-parse --git-path agent-reviews`). They never enter
-the tracked source tree. Do not add them to Git. Keep them for local audit.
+A provider's quota/rate error switches to the next reviewer once, using the same
+frozen files, prompt and requirements. A completed valid report is required. Both
+providers unavailable, authentication failures, malformed reports, unresolved
+findings, changed HEAD or stale staged content leave review pending. Fallback is
+not triggered by ordinary findings or content refusals. Never substitute GLM.
+If both providers are limited during confirmation, it remains pending without
+clearance. After limits reset, finish may resume for the exact same staged fixes;
+changed fixes are rejected. This does not rerun the initial review.
 
-AI review is scoped to agent-commit. Human CLI and GUI commits use normal Git
-hooks and are not intercepted. The checked agent command preserves the repository's
-existing hooks and checks clearance again after they run. All agents must use this
-command; this is a workflow requirement, not a security boundary against an agent
-that deliberately invokes raw Git. Do not use --no-verify or change hooks to bypass.
+The runner remembers reviewer limits under `/Users/ale/.agents/state/review-provider-limits`.
+It uses a machine-readable reset time when available; otherwise the backoff is one
+hour for quota exhaustion and one minute for transient rate limits. These defaults
+are retry delays, not claims about the subscription's actual reset. There are no
+background retries or automatic purchases/resets. Logs record every attempted or
+skipped provider. No paid API-key fallback is introduced.
 
-Run `agent-review check` to verify clearance without committing. An unchanged
-snapshot can be reused; any staged-content or HEAD change invalidates clearance.
-The classifier skips documentation, lockfiles and routine manifest/config bookkeeping.
-Any source/test file, executable or CI configuration, substantive package scripts or
-entrypoint changes, or unfamiliar file requires review. Mixed commits are reviewed.
-The command refuses to start without a gate request for the current staged snapshot.
+Snapshots, reports and ledgers live under the worktree's private Git directory
+(`git rev-parse --git-path agent-reviews`); never stage them. `agent-review check`
+verifies clearance without committing. An unchanged snapshot may reuse clearance;
+any staged-tree or HEAD change invalidates it. The start command requires a gate
+request for the current staged state.
 
-Report reviewer models, actionable findings, fixes/rejections and validation. A
-successful command exit alone is not evidence that the findings were resolved.
+All agents must use agent-commit. Raw Git remains available for human commits;
+this is a workflow requirement, not a security boundary against an agent that
+ignores instructions. Reviewers and confirmation workers are read-only, do not
+delegate reviews, and do not invoke this workflow recursively.
