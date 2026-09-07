@@ -447,7 +447,7 @@ def do_gate() -> NoReturn:
 
     rc, _ = git(root, "diff", "--cached", "--quiet")
     staged_empty = (rc == 0)
-    if info["amend"] and staged_empty:
+    if info["amend"] and staged_empty and not (info["stages"] or info["has_pathspec"] or staged_before):
         allow()                       # reword-only amend -> nothing new to review
 
     if info["stages"] or info["has_pathspec"] or staged_before:

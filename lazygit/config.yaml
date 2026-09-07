@@ -1,6 +1,6 @@
 git:
-  pagers:
-    - pager: delta --paging=never --line-numbers --features=colibri
+  diffRenderers:
+    - command: delta --paging=never --line-numbers --features=colibri
       colorArg: always
   ignoreWhitespaceInDiffView: true
   # commitPrefix:

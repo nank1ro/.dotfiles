@@ -1,8 +1,6 @@
 {
   "env": {
-    "ANTHROPIC_MODEL": "claude-opus-4-8[1m]",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
     "DISABLE_TELEMETRY": "1",
     "DO_NOT_TRACK": "1",
     "ENABLE_TOOL_SEARCH": "auto"
@@ -14,28 +12,15 @@
   "permissions": {
     "defaultMode": "auto"
   },
-  "model": "fable",
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/Users/ale/.claude/hooks/commit-review-gate.sh"
-          }
-        ]
-      }
-    ]
-  },
+  "model": "claude-fable-5-1",
+  "hooks": {},
   "enabledPlugins": {
     "chrome-devtools-mcp@claude-plugins-official": true,
     "pyright-lsp@claude-plugins-official": true,
     "paddle@claude-community": true,
     "mattpocock-skills@mattpocock": true,
     "lua-lsp@claude-plugins-official": true,
-    "ponytail@ponytail": true,
-    "caveman@caveman": true
+    "ponytail@ponytail": true
   },
   "extraKnownMarketplaces": {
     "chrome-devtools-plugins": {
@@ -61,16 +46,10 @@
         "source": "github",
         "repo": "DietrichGebert/ponytail"
       }
-    },
-    "caveman": {
-      "source": {
-        "source": "github",
-        "repo": "JuliusBrussee/caveman"
-      }
     }
   },
   "alwaysThinkingEnabled": true,
-  "effortLevel": "xhigh",
+  "effortLevel": "high",
   "showClearContextOnPlanAccept": true,
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
