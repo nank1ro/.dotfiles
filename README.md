@@ -49,6 +49,7 @@ so the sync-on-commit works on a fresh machine. New machine: `git clone …` →
 | lazycommit | `~/.config/.lazycommit.yaml`, `~/.config/.lazycommit.prompts.yaml` | `.lazycommit.yaml`, `.lazycommit.prompts.yaml` |
 | tmux | `~/.tmux.conf` | `.tmux.conf` |
 | claude | `~/.claude/settings.json`, `~/.claude/CLAUDE.md` | `claude/settings.json`, `claude/CLAUDE.md` |
+| agents | `~/.agents/AGENTS.md` | `agents/AGENTS.md` |
 | wezterm | `~/.wezterm.lua` | `.wezterm.lua` |
 | zshrc | `~/.zshrc` | `.zshrc` |
 | ghostty | `~/.config/ghostty/config` | `ghostty/config` |

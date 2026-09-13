@@ -105,6 +105,19 @@ else
   echo "⚠ Skipping claude/skills/commit-review/SKILL.md: source file not found"
 fi
 
+# Sync shared agent instructions (referenced by claude/CLAUDE.md)
+if [ -f "$HOME/.agents/AGENTS.md" ]; then
+  mkdir -p "$REPO_ROOT/agents"
+  cp "$HOME/.agents/AGENTS.md" "$REPO_ROOT/agents/AGENTS.md"
+
+  if [ -n "$(git status --porcelain agents/)" ]; then
+    echo "✓ Synced agents/AGENTS.md"
+    has_changes=true
+  fi
+else
+  echo "⚠ Skipping agents/AGENTS.md: source file not found"
+fi
+
 # Sync wezterm config
 if [ -f "$HOME/.wezterm.lua" ]; then
   cp "$HOME/.wezterm.lua" "$REPO_ROOT/.wezterm.lua"

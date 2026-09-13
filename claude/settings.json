@@ -12,8 +12,20 @@
   "permissions": {
     "defaultMode": "auto"
   },
-  "model": "claude-fable-5-1",
-  "hooks": {},
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/Users/ale/.claude/hooks/herdr-agent-state.sh' session",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
   "enabledPlugins": {
     "chrome-devtools-mcp@claude-plugins-official": true,
     "pyright-lsp@claude-plugins-official": true,

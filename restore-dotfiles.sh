@@ -148,6 +148,9 @@ restore_file "$REPO_ROOT/claude/hooks/commit-review-gate.py" "$HOME/.claude/hook
 [ -f "$HOME/.claude/hooks/commit-review-gate.py" ] && chmod +x "$HOME/.claude/hooks/commit-review-gate.py"
 restore_file "$REPO_ROOT/claude/skills/commit-review/SKILL.md" "$HOME/.claude/skills/commit-review/SKILL.md"
 
+# shared agent instructions (referenced by claude/CLAUDE.md)
+restore_file "$REPO_ROOT/agents/AGENTS.md" "$HOME/.agents/AGENTS.md"
+
 # wezterm
 restore_file "$REPO_ROOT/.wezterm.lua" "$HOME/.wezterm.lua"
 
