@@ -12,6 +12,7 @@
   "permissions": {
     "defaultMode": "auto"
   },
+  "model": "claude-fable-5-1",
   "hooks": {
     "SessionStart": [
       {
