@@ -103,10 +103,13 @@ Review the exact staged snapshot, provide requirements and repo access, and keep
 the implementer's reasoning and other reviewers' reports out of initial reviews.
 Reviewers report actionable defects without editing files or delegating reviews.
 The lead adjudicates findings; a separate fix worker applies accepted findings.
-Allow one full review round and at most one confirmation pass restricted to fixes.
-If confirmation finds a defect or fails for a non-quota reason, report the issue
-instead of starting a review loop. If both providers are quota- or rate-limited,
-confirmation remains pending and may resume after reset for the exact same staged fixes.
+After fixes, obtain another independent review of the exact staged snapshot. If that
+review or its fix confirmation finds a defect, adjudicate it, use a separate fix
+worker for accepted findings, and begin a fresh review cycle for the new staged
+snapshot. Repeat until the current snapshot receives clearance with no unresolved
+findings. Never reuse clearance from an older snapshot or edit a review ledger to
+manufacture approval. If both providers are quota- or rate-limited, review remains
+pending and may resume after reset for the exact same staged content.
 
 Use `/Users/ale/.local/bin/agent-review` for the shared review workflow and
 `/Users/ale/.local/bin/agent-commit` for every agent-made commit across all tools.

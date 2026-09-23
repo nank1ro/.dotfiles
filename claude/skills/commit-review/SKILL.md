@@ -1,6 +1,6 @@
 ---
 name: commit-review
-description: Review staged code at agent-commit time with independent Opus or Sol sessions and a fresh cross-provider fallback on usage limits. Covers correctness and simplicity, adjudication, a separate fix worker, one confirmation pass, and staged-content clearance. Human commits and routine bookkeeping are exempt.
+description: Review staged code at agent-commit time with independent Opus or Sol sessions and a fresh cross-provider fallback on usage limits. Covers correctness and simplicity, adjudication, separate fix workers, repeatable fix and re-review cycles, and staged-content clearance. Human commits and routine bookkeeping are exempt.
 ---
 
 # Commit review
@@ -43,9 +43,13 @@ does not commit or push.
    accepted fixes explicitly and run relevant validation. Skip this step if no
    findings are accepted.
 5. Run `agent-review finish /absolute/path/to/review-directory`. Changed content
-   receives at most one confirmation pass restricted to the accepted fixes, using
-   the initial reviewer selection and its fallback. If confirmation fails, report
-   the issue rather than starting another full review or confirmation loop.
+   receives a confirmation pass restricted to the accepted fixes, using the initial
+   reviewer selection and its fallback. If confirmation reports a defect or fails,
+   preserve its report and do not alter that run's ledger. Apply any accepted fixes
+   with a separate fix worker, stage the resulting snapshot, attempt `agent-commit`
+   again to request review for that exact state, and start a fresh review cycle.
+   Repeat adjudication, fixing, and independent review until the current staged
+   snapshot is cleared with no unresolved findings.
 6. Once cleared, run `agent-commit -m "message"` separately when authorized. Existing
    repository hooks still run; the exact staged tree and HEAD are checked after
    hooks. No -a, pathspecs, chained staging, --no-verify, or push without authorization.
@@ -57,7 +61,11 @@ findings, changed HEAD or stale staged content leave review pending. Fallback is
 not triggered by ordinary findings or content refusals. Never substitute GLM.
 If both providers are limited during confirmation, it remains pending without
 clearance. After limits reset, finish may resume for the exact same staged fixes;
-changed fixes are rejected. This does not rerun the initial review.
+changed fixes are rejected. A failed or defect-bearing confirmation is immutable;
+the next corrected staged snapshot receives a new full review run rather than a
+rewritten result. Stop only for a genuine external blocker such as unavailable
+review providers or required user input, not merely because multiple fix cycles
+were needed.
 
 The runner remembers reviewer limits under `/Users/ale/.agents/state/review-provider-limits`.
 It uses a machine-readable reset time when available; otherwise the backoff is one

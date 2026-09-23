@@ -12,7 +12,6 @@
   "permissions": {
     "defaultMode": "auto"
   },
-  "model": "claude-fable-5-1",
   "hooks": {
     "SessionStart": [
       {
@@ -67,6 +66,7 @@
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "theme": "auto",
+  "verbose": false,
   "skipAutoPermissionPrompt": true,
   "preferences": {
     "secureVmFeaturesEnabled": false
