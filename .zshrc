@@ -226,3 +226,6 @@ if [[ -z "$_FORGE_THEME_LOADED" ]]; then
     eval "$(forge zsh theme)"
 fi
 # <<< forge initialize <<<
+
+# shallow single-branch clone: gshallow <url> [branch=main]
+gshallow() { git clone --branch "${2:-main}" --depth 1 --single-branch "$1"; }
