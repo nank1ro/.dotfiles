@@ -7,7 +7,9 @@ reclaim — free disk by clearing regenerable dev caches & build artifacts.
 Clears: npm/pnpm/yarn/pub/gradle/cargo/go/CocoaPods caches, ~/.cache,
 Flutter build artifacts, Xcode DerivedData + DeviceSupport, Homebrew old
 versions, ALL unused Docker images, ~/Library/Caches, ~/Library/Logs,
-Xcode Archives, and the Trash.
+Xcode Archives, the Trash, and agent-reviews ledgers in ~/github repos.
+Asks per repo before deleting linked git worktrees (skipped with -y).
+Prunes AI transcripts/logs older than 30 days (Claude, Codex, OpenCode, T3).
 
 Never touches: source code, browser profiles, SDK-matched simulator runtimes,
 installed CLI binaries (~/.cargo/bin, ~/.pub-cache/bin), or JetBrains/Android
@@ -44,6 +46,8 @@ XCODE_RUNNING=0; pgrep -xq Xcode && XCODE_RUNNING=1
 
 echo "reclaim: clears dev caches, build artifacts, Docker images, Xcode DerivedData,"
 echo "         DeviceSupport, ~/Library/Caches & Logs, Xcode Archives, and Trash."
+echo "         Also: .git/agent-reviews; asks per repo before deleting linked worktrees;"
+echo "         AI tool transcripts/logs older than 30 days."
 echo "         Keeps source, browsers, simulator runtimes, installed CLIs, IDE history."
 [[ $DEEP == 1 ]] && echo "         --deep: also node_modules + .venv across ~/github"
 echo
@@ -113,6 +117,45 @@ step "~/Library/Logs"; rm -rf "${HOME:?}/Library/Logs/"* 2>/dev/null; sp
 
 # --- Trash (opted in — irreversible) ---
 step "Trash"; rm -rf "${HOME:?}/.Trash/"* 2>/dev/null; sp
+
+# --- agent review ledgers (local-only, regenerable) ---
+if [[ -d "$GH" ]]; then
+  step "agent-reviews in ~/github repos (.git/agent-reviews + per-worktree)"
+  find "$GH" -maxdepth 6 -type d -name agent-reviews -path '*/.git/*' -prune -exec rm -rf {} + 2>/dev/null; sp
+fi
+
+# --- linked git worktrees (per-repo confirmation; skipped with -y) ---
+if [[ $YES == 0 && -d "$GH" ]]; then
+  while IFS= read -r -u 3 g; do
+    [[ -n "$(ls -A "$g/worktrees" 2>/dev/null)" ]] || continue
+    repo=$(dirname "$g")
+    wts=$(git -C "$repo" worktree list --porcelain 2>/dev/null | awk '/^worktree /{sub(/^worktree /,""); print}' | tail -n +2)
+    echo; echo "$repo has linked worktrees (checkouts are deleted, uncommitted work is lost):"
+    while IFS= read -r w; do
+      [[ -z "$w" ]] && continue
+      dirty=""; [[ -n "$(git -C "$w" status --porcelain 2>/dev/null)" ]] && dirty=" [UNCOMMITTED CHANGES]"
+      echo "   $w$dirty"
+    done <<< "$wts"
+    read -r -p "Delete them and .git/worktrees? [y/N] " ans || ans=""
+    [[ "${ans:-}" == [yY]* ]] || continue
+    ok=1
+    while IFS= read -r w; do
+      [[ -z "$w" ]] && continue
+      git -C "$repo" worktree remove --force --force "$w" </dev/null >/dev/null 2>&1 || { echo "   !! could not remove $w"; ok=0; }
+    done <<< "$wts"
+    git -C "$repo" worktree prune </dev/null >/dev/null 2>&1
+    [[ $ok == 1 ]] && rm -rf "$g/worktrees"
+  done 3< <(find "$GH" -maxdepth 3 -type d -name .git -prune 2>/dev/null)
+  sp
+fi
+
+# --- AI tool transcripts & logs older than 30 days (never DBs or Claude memory/) ---
+step "AI transcripts/logs >30d (Claude, Codex, OpenCode, T3)"
+find "${HOME:?}/.claude/projects" -type d -name '*t3code-claude-title*' -prune -exec rm -rf {} + 2>/dev/null
+find "${HOME:?}/.claude/projects" -type f -name '*.jsonl' -mtime +30 -not -path '*/memory/*' -delete 2>/dev/null
+find "${HOME:?}/.codex/sessions" "${HOME:?}/.local/share/opencode/log" "${HOME:?}/.t3/userdata/logs" \
+     -type f -mtime +30 -delete 2>/dev/null
+find "${HOME:?}/.claude/projects" "${HOME:?}/.codex/sessions" -mindepth 1 -type d -empty -delete 2>/dev/null; sp
 
 # --- deep (opt-in): project dependencies ---
 if [[ $DEEP == 1 && -d "$GH" ]]; then
