@@ -133,3 +133,8 @@ If a paragraph-long comment is needed to justify a workaround, reconsider the co
 Caveman is an opt-in persona only. When the user explicitly requests it, read
 `/Users/ale/.agents/prompts/caveman.md`. Generic requests for brevity do not activate
 it. No automatic Caveman hook or plugin is needed.
+
+## 6. Writing
+
+Never use the em dash (U+2014) anywhere: code, comments, docs, commit messages,
+slides, or chat. Use a colon, comma, parentheses, or a new sentence instead.
