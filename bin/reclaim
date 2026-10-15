@@ -5,11 +5,14 @@ usage() { cat <<'EOF'
 reclaim — free disk by clearing regenerable dev caches & build artifacts.
 
 Clears: npm/pnpm/yarn/pub/gradle/cargo/go/CocoaPods caches, ~/.cache,
-Flutter build artifacts, Xcode DerivedData + DeviceSupport, Homebrew old
-versions, ALL unused Docker images, ~/Library/Caches, ~/Library/Logs,
-Xcode Archives, the Trash, and agent-reviews ledgers in ~/github repos.
-Asks per repo before deleting linked git worktrees (skipped with -y).
-Prunes AI transcripts/logs older than 30 days (Claude, Codex, OpenCode, T3).
+Flutter build artifacts, Dart analyzer cache, Xcode DerivedData + DeviceSupport,
+Homebrew old versions, ALL unused Docker images, ~/Library/Caches, ~/Library/Logs,
+Xcode Archives, the Trash, agent-reviews ledgers in ~/github repos and ~/flutter,
+OpenCode undo snapshots, Codex temp files, and inactive Claude Code versions.
+Asks before deleting linked git worktrees and orphaned Claude/T3 Code/Codex
+worktree dirs (skipped with -y). Always removes Claude/T3 Code/Codex worktrees
+untouched for 14+ days if clean and their commits are on a branch; warns otherwise.
+Prunes AI transcripts/logs older than 14 days (Claude, Codex, OpenCode, T3).
 
 Never touches: source code, browser profiles, SDK-matched simulator runtimes,
 installed CLI binaries (~/.cargo/bin, ~/.pub-cache/bin), or JetBrains/Android
@@ -46,8 +49,9 @@ XCODE_RUNNING=0; pgrep -xq Xcode && XCODE_RUNNING=1
 
 echo "reclaim: clears dev caches, build artifacts, Docker images, Xcode DerivedData,"
 echo "         DeviceSupport, ~/Library/Caches & Logs, Xcode Archives, and Trash."
-echo "         Also: .git/agent-reviews; asks per repo before deleting linked worktrees;"
-echo "         AI tool transcripts/logs older than 30 days."
+echo "         Also: .git/agent-reviews; asks per repo before deleting linked + orphaned worktrees;"
+echo "         AI tool transcripts/logs older than 14 days; Dart analyzer cache; OpenCode snapshots;"
+echo "         Codex temp files; inactive Claude Code versions."
 echo "         Keeps source, browsers, simulator runtimes, installed CLIs, IDE history."
 [[ $DEEP == 1 ]] && echo "         --deep: also node_modules + .venv across ~/github"
 echo
@@ -77,6 +81,8 @@ fi; sp
 # download caches only — keep ~/.pub-cache/bin + global_packages (activated CLIs)
 step "pub-cache downloads (keeps global CLIs)"
 rm -rf "${HOME:?}/.pub-cache/hosted" "${HOME:?}/.pub-cache/git" 2>/dev/null; sp
+step "Dart analyzer cache (~/.dartServer)"
+rm -rf "${HOME:?}/.dartServer/.analysis-driver" "${HOME:?}/.dartServer/.plugin_manager" 2>/dev/null; sp
 
 # --- iOS / macOS (CocoaPods + Xcode) ---
 have pod && { step "CocoaPods cache"; run pod cache clean --all; sp; }
@@ -119,10 +125,36 @@ step "~/Library/Logs"; rm -rf "${HOME:?}/Library/Logs/"* 2>/dev/null; sp
 step "Trash"; rm -rf "${HOME:?}/.Trash/"* 2>/dev/null; sp
 
 # --- agent review ledgers (local-only, regenerable) ---
+# ~/flutter holds the snapshots of its worktrees that live in ~/github.
 if [[ -d "$GH" ]]; then
-  step "agent-reviews in ~/github repos (.git/agent-reviews + per-worktree)"
-  find "$GH" -maxdepth 6 -type d -name agent-reviews -path '*/.git/*' -prune -exec rm -rf {} + 2>/dev/null; sp
+  step "agent-reviews in ~/github repos and ~/flutter (.git/agent-reviews + per-worktree)"
+  find "$GH" "${HOME:?}/flutter" -maxdepth 6 -type d -name agent-reviews -path '*/.git/*' -prune -exec rm -rf {} + 2>/dev/null; sp
 fi
+
+# Agent worktree dirs: Claude (<repo>/.claude/worktrees/*), T3 Code (~/.t3/worktrees/<repo>/*),
+# Codex (~/.codex/worktrees/<id>/<repo>).
+agent_wts() {
+  local d w
+  { while IFS= read -r d; do printf '%s\n' "$d"/*/; done < <(find "$GH" -maxdepth 5 -type d -path '*/.claude/worktrees' -prune 2>/dev/null)
+    printf '%s\n' "$HOME"/.t3/worktrees/*/*/ "$HOME"/.codex/worktrees/*/*/; } |
+  while IFS= read -r w; do w=${w%/}; [[ -d "$w" ]] && printf '%s\n' "$w"; done
+}
+# Prints the shared .git dir of a worktree that git still tracks; fails for orphans.
+wt_common() {
+  local gd; gd=$(sed -n 's/^gitdir: //p' "$1/.git" 2>/dev/null)
+  [[ -n "$gd" && -d "$gd" ]] && git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null
+}
+
+# --- stale agent worktrees (untouched 14+ days, clean, HEAD on a branch; runs with -y too) ---
+step "Claude/T3 Code/Codex worktrees untouched >14d (clean, commits on a branch)"
+while IFS= read -r -u 3 w; do
+  common=$(wt_common "$w") || continue
+  [[ -z "$(find "$w" -mtime -14 -print -quit 2>/dev/null)" ]] || continue
+  [[ -z "$(git -C "$w" status --porcelain 2>/dev/null)" ]] || { echo "   !! kept (uncommitted changes, check it): $w"; continue; }
+  [[ -n "$(git -C "$w" for-each-ref --count=1 --contains HEAD refs/heads refs/remotes 2>/dev/null)" ]] || { echo "   !! kept (commits on no branch, check it): $w"; continue; }
+  git -C "$common" worktree remove "$w" </dev/null >/dev/null 2>&1 && echo "   removed $w"
+done 3< <(agent_wts)
+sp
 
 # --- linked git worktrees (per-repo confirmation; skipped with -y) ---
 if [[ $YES == 0 && -d "$GH" ]]; then
@@ -149,13 +181,37 @@ if [[ $YES == 0 && -d "$GH" ]]; then
   sp
 fi
 
-# --- AI tool transcripts & logs older than 30 days (never DBs or Claude memory/) ---
-step "AI transcripts/logs >30d (Claude, Codex, OpenCode, T3)"
+# --- orphaned agent worktree dirs git no longer tracks (confirmation; skipped with -y) ---
+if [[ $YES == 0 ]]; then
+  orphans=()
+  while IFS= read -r w; do wt_common "$w" >/dev/null || orphans+=("$w"); done < <(agent_wts)
+  if (( ${#orphans[@]} )); then
+    echo; echo "Claude/T3 Code/Codex worktree dirs git no longer tracks (contents are lost):"
+    printf '   %s\n' "${orphans[@]}"
+    read -r -p "Delete them? [y/N] " ans || ans=""
+    [[ "${ans:-}" == [yY]* ]] && rm -rf "${orphans[@]}"
+    sp
+  fi
+fi
+
+# --- AI tool transcripts & logs older than 14 days (never DBs or Claude memory/) ---
+step "AI transcripts/logs >14d (Claude, Codex, OpenCode, T3)"
 find "${HOME:?}/.claude/projects" -type d -name '*t3code-claude-title*' -prune -exec rm -rf {} + 2>/dev/null
-find "${HOME:?}/.claude/projects" -type f -name '*.jsonl' -mtime +30 -not -path '*/memory/*' -delete 2>/dev/null
+find "${HOME:?}/.claude/projects" -type f -name '*.jsonl' -mtime +14 -not -path '*/memory/*' -delete 2>/dev/null
 find "${HOME:?}/.codex/sessions" "${HOME:?}/.local/share/opencode/log" "${HOME:?}/.t3/userdata/logs" \
-     -type f -mtime +30 -delete 2>/dev/null
+     -type f -mtime +14 -delete 2>/dev/null
 find "${HOME:?}/.claude/projects" "${HOME:?}/.codex/sessions" -mindepth 1 -type d -empty -delete 2>/dev/null; sp
+
+# --- AI tool scratch data (undo snapshots, temp files, old binaries) ---
+step "OpenCode snapshots, Codex temp files, inactive Claude Code versions"
+rm -rf "${HOME:?}/.local/share/opencode/snapshot" "${HOME:?}/.codex/.tmp/"* 2>/dev/null
+active_claude=$(readlink "${HOME:?}/.local/bin/claude" 2>/dev/null)
+if [[ -n "$active_claude" ]]; then
+  for v in "${HOME:?}/.local/share/claude/versions/"*; do
+    [[ -e "$v" && "$v" != "$active_claude" ]] && rm -rf "$v"
+  done
+fi
+sp
 
 # --- deep (opt-in): project dependencies ---
 if [[ $DEEP == 1 && -d "$GH" ]]; then
