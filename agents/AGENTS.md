@@ -76,6 +76,13 @@ model, and acceptance criteria. One writer per worktree; use separate worktrees
 for parallel implementation. Never stash, reset, or overwrite another agent's
 changes.
 
+Clean up worktrees you created once their work has landed: the branch is merged
+into another branch (`git branch --merged`) or its PR is merged (`gh pr view
+--json state`, which also catches squash merges). Remove only clean worktrees with
+`git worktree remove` (never `--force`), then delete the merged branch. Leave the
+worktree your session runs in to its host app (T3 Code, Conductor, Codex), and
+never remove another agent's worktree or one with unmerged commits.
+
 The lead owns architecture, decisions, and escalations; delegate bounded
 implementation, debugging, and testing work to appropriate workers. GLM through
 OpenCode remains for small, well-specified chores and easy mechanical tasks:
