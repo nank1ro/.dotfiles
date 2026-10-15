@@ -9,6 +9,7 @@
     "commit": "",
     "pr": ""
   },
+  "includeCoAuthoredBy": false,
   "permissions": {
     "defaultMode": "auto"
   },
@@ -31,8 +32,7 @@
     "pyright-lsp@claude-plugins-official": true,
     "paddle@claude-community": true,
     "mattpocock-skills@mattpocock": true,
-    "lua-lsp@claude-plugins-official": true,
-    "ponytail@ponytail": true
+    "lua-lsp@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "chrome-devtools-plugins": {
@@ -51,12 +51,6 @@
       "source": {
         "source": "github",
         "repo": "mattpocock/skills"
-      }
-    },
-    "ponytail": {
-      "source": {
-        "source": "github",
-        "repo": "DietrichGebert/ponytail"
       }
     }
   },
