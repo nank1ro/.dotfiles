@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+"""storage-restore: bring archived items back to their original path from the external drive.
+
+Usage:
+  storage-restore <original path>    restore that item, or every archived item under that folder
+  storage-restore --list [path]      show archived items (optionally only under path)
+
+Reads the manifests in ~/.agents/archive/. Uses the copies on the archive drives with the recorded
+volume UUID: Dev first, and TOSHIBA L when the Dev copy is unavailable or damaged. A volume this run
+had to mount (by UUID) is unmounted again at the end. --list reads only the manifests.
+Never overwrites: refuses if the original path exists. Every restored file is checked against the
+SHA-256 recorded when it was archived.
+"""
+import base64, ctypes, hashlib, os, plistlib, shutil, stat, subprocess, sys, tarfile, tempfile, time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "share" / "storage-rescue"))
+import offload as off  # noqa: E402
+
+LOCAL = Path(os.environ.get("STORAGE_RESCUE_LOCAL", Path.home() / ".agents" / "archive"))
+ROOTS = [  # label, mount point, volume UUID
+    ("Dev", "/Volumes/Dev", "F1006B57-7A00-4802-B4BA-80F906DC8162"),
+    ("TOSHIBA-L", "/Volumes/TOSHIBA L", "9EBED80B-CE43-3485-969F-E4E0DD40088D"),
+]
+_libc = ctypes.CDLL(None, use_errno=True)
+
+
+class Bad(Exception):
+    pass
+
+
+def sha(p):
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for b in iter(lambda: f.read(8 << 20), b""):
+            h.update(b)
+    return h.hexdigest()
+
+
+def _setxattr(path, name, v):
+    return _libc.setxattr(os.fsencode(path), name.encode("utf-8", "surrogateescape"), v, len(v), 0, 1) == 0
+
+
+def apply_xattrs(built, xmap):
+    """Put back recorded xattrs (Finder tags and so on), symlinks included. Returns the entries that refused."""
+    bad = []
+    for rel, attrs in xmap.items():
+        p = built if rel == "." else built / rel
+        for name, b64 in attrs.items():
+            v = base64.b64decode(b64)
+            if _setxattr(p, name, v):
+                continue
+            st = os.lstat(p)  # read-only files and folders need write permission for xattrs
+            if stat.S_ISLNK(st.st_mode) or st.st_mode & 0o200:
+                bad.append(f"{rel}:{name}")
+                continue
+            os.chmod(p, stat.S_IMODE(st.st_mode) | 0o200)
+            try:
+                if not _setxattr(p, name, v):
+                    bad.append(f"{rel}:{name}")
+            finally:
+                os.chmod(p, stat.S_IMODE(st.st_mode))
+    return bad
+
+
+def uuid_of(mount):
+    r = subprocess.run(["diskutil", "info", "-plist", mount], capture_output=True)
+    return plistlib.loads(r.stdout).get("VolumeUUID") if r.returncode == 0 else None
+
+
+MOUNTED, MISSING = [], set()  # volumes this run mounted, and those it could not mount
+
+
+def connect(mount, uuid):
+    """Make sure the volume with this UUID is mounted at mount, mounting it by UUID if needed."""
+    if not os.path.ismount(mount):
+        if mount in MISSING or subprocess.run(["diskutil", "mount", uuid], capture_output=True).returncode != 0:
+            MISSING.add(mount)
+            raise Bad("not connected (connect the Toshiba drive and try again)")
+        MOUNTED.append(mount)
+    if not os.path.ismount(mount) or uuid_of(mount) != uuid:
+        raise Bad(f"{mount} is not the volume {uuid}")
+
+
+def disconnect():
+    """Unmount what this run mounted (never forced; Spotlight can hold a volume briefly)."""
+    for mount in MOUNTED:
+        subprocess.run(["sync"])
+        for _ in range(120):
+            if not os.path.ismount(mount) or subprocess.run(["diskutil", "unmount", mount], capture_output=True).returncode == 0:
+                break
+            time.sleep(1)
+        else:
+            print(f"WARNING: could not unmount {mount}; unmount it in Finder before moving the drive")
+
+
+def load(label):
+    """job -> records of the attempt that produced its latest completed copy on this drive."""
+    recs = off.read_manifest(LOCAL / f"{label}-manifest.jsonl")
+    deleted = {r["job"] for r in recs if r["status"] in ("source-deleted", "source-partly-deleted")}
+    return {job: {"recs": rs, "deleted": job in deleted, "xattrs": copied.get("xattrs", {})}
+            for job, (copied, rs) in off.attempts(recs).items() if rs}
+
+
+def matches(job, target):
+    return job == target or job.startswith(target.rstrip("/") + "/")
+
+
+def on_drive(r, mount):
+    """The recorded destination; the drive must be mounted where it was when archived."""
+    p = Path(r["dest"])
+    if not str(p).startswith(mount + "/"):
+        raise Bad(f"manifest destination {p} is not under {mount}")
+    return p
+
+
+def build(job, recs, mount, tmp):
+    """Rebuild the item inside tmp from one drive's copy and check it. Raises on any problem."""
+    src = Path(job)
+    built = tmp / src.name
+    if recs[0]["status"] == "archive-verified":
+        r = recs[0]
+        arc = on_drive(r, mount)
+        if sha(arc) != r["sha256"]:
+            raise Bad("archive on the drive does not match the manifest")
+        with tarfile.open(arc) as t:
+            t.extractall(tmp, filter="fully_trusted")  # our own verified archive; keeps absolute links
+        for member, want in r["files"].items():
+            if sha(tmp / member) != want:
+                raise Bad(f"{member} does not match after extraction")
+        return built
+    for r in recs:
+        rel = Path(r["src"]).relative_to(src) if r["src"] != job else Path()
+        out = built / rel if str(rel) != "." else built
+        out.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["ditto", str(on_drive(r, mount)), str(out)], check=True, capture_output=True)
+        if sha(out) != r["sha256"]:
+            raise Bad(f"{out.name} does not match after copying")
+        if "mode" in r:
+            os.chmod(out, r["mode"])
+    return built
+
+
+def restore_job(job, copies):
+    """copies: [(label, mount, uuid, recs, xattrs)] in order of preference; the first good one is used."""
+    src = Path(job)
+    if src.exists() or src.is_symlink():
+        return f"SKIP {job}: already exists, not overwriting"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    errors = []
+    for label, mount, uuid, recs, xmap in copies:
+        tmp = None
+        try:
+            connect(mount, uuid)
+            tmp = Path(tempfile.mkdtemp(prefix=".storage-restore-", dir=src.parent))
+            built = build(job, recs, mount, tmp)
+            bad = apply_xattrs(built, xmap)
+            if src.exists() or src.is_symlink():
+                return f"SKIP {job}: appeared during restore, not overwriting"
+            os.rename(built, src)
+            return (f"RESTORED {job} from {label}" + (f" (other copy failed: {'; '.join(errors)})" if errors else "")
+                    + (f" (could not restore attributes: {bad[:3]})" if bad else ""))
+        except Exception as e:
+            errors.append(f"{label}: {e}")
+        finally:
+            if tmp:
+                shutil.rmtree(tmp, ignore_errors=True)
+    return f"FAIL {job}: no good copy ({'; '.join(errors)})"
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help"):
+        print(__doc__); return
+    listing = args[0] == "--list"
+    raw = os.path.abspath(os.path.expanduser(args[1] if listing and len(args) > 1 else args[0] if not listing else "/"))
+    target = raw if raw == "/" else os.path.join(os.path.realpath(os.path.dirname(raw)), os.path.basename(raw))  # resolve parents like storage-archive
+    loaded = {label: {j: v for j, v in load(label).items() if matches(j, target) or target == "/"} for label, _m, _u in ROOTS}
+    if listing:
+        for label, _m, _u in ROOTS:
+            for j, v in sorted(loaded[label].items()):
+                size = sum(r["size"] for r in v["recs"])
+                print(f"{size/1e6:9.1f} MB  {'archived' if v['deleted'] else 'copied  '}  {j}  [{label}]")
+        return
+    jobs = sorted({j for label in loaded for j in loaded[label]})
+    if not jobs:
+        sys.exit(f"Nothing restorable for {target}: not in the archive.")
+    try:
+        for j in jobs:
+            print(restore_job(j, [(label, mount, uuid, loaded[label][j]["recs"], loaded[label][j]["xattrs"])
+                                  for label, mount, uuid in ROOTS if j in loaded[label]]), flush=True)
+    finally:
+        disconnect()
+
+
+if __name__ == "__main__":
+    main()

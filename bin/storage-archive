@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+"""storage-archive: move cold files or folders from this Mac to the Toshiba archive drive.
+
+Usage:
+  storage-archive <path> [<path> ...]   check, copy to Dev and TOSHIBA L, remount, re-verify,
+                                        then ask before deleting from the Mac
+  storage-archive --finish <plan>       remount, re-verify the copies, ask again and delete a batch
+                                        that was copied and verified
+  storage-archive --help
+
+Every item ends up on two volumes of the Toshiba disk (Dev/Mac-Archive and TOSHIBA L/Mac-Archive),
+checked by SHA-256 right after copying and again after both volumes were unmounted and mounted.
+Deleting needs a "y" typed at the user's own terminal; without one, the batch stays copied and the
+command to finish it is printed. Restore with `storage-restore <original path>`.
+"""
+import fcntl, json, os, shutil, subprocess, sys, time
+from pathlib import Path
+
+TOOLS = Path(__file__).resolve().parent.parent / "share" / "storage-rescue"
+sys.path.insert(0, str(TOOLS))
+import offload as off  # noqa: E402
+
+H = Path(os.path.realpath(Path.home()))
+ARCH = H / ".agents" / "archive"
+DIRNAME = os.environ.get("STORAGE_ARCHIVE_DIRNAME", "Mac-Archive")  # override only for tests
+ROOTS = [
+    {"label": "Dev", "path": f"/Volumes/Dev/{DIRNAME}", "mount": "/Volumes/Dev",
+     "uuid": "F1006B57-7A00-4802-B4BA-80F906DC8162", "xattrs": True},
+    {"label": "TOSHIBA-L", "path": f"/Volumes/TOSHIBA L/{DIRNAME}", "mount": "/Volumes/TOSHIBA L",
+     "uuid": "9EBED80B-CE43-3485-969F-E4E0DD40088D", "xattrs": False},
+]
+NEVER = [".ssh", ".gnupg", ".agents", ".claude", ".codex", ".config", ".local", ".t3", "Library/Keychains",
+         "Library/Mail", "Library/Messages", "Library/Mobile Documents", "Pictures/Photos Library.photoslibrary",
+         "Library/Application Support/Bitwarden", "Library/Group Containers"]
+
+
+def say(*a):
+    print(*a, flush=True)
+
+
+def die(msg, code=1):
+    say("ERROR:", msg)
+    sys.exit(code)
+
+
+def free_gb():
+    st = os.statvfs("/System/Volumes/Data")
+    return st.f_bavail * st.f_frsize / 1e9
+
+
+def git(path, *args):
+    r = subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def repo_problem(repo):
+    """Return why the Git repo or worktree at repo is not safe to archive, or None."""
+    if git(repo, "status", "--porcelain"):
+        return "has uncommitted changes"
+    if git(repo, "log", "HEAD", "--branches", "--not", "--remotes", "--oneline"):
+        return "has commits that are not pushed"
+    if git(repo, "stash", "list"):
+        return "has stashes"
+    heads = git(repo, "for-each-ref", "--format=%(refname:short) %(upstream)", "refs/heads") or ""
+    if any(len(l.split()) == 1 for l in heads.splitlines()):
+        return "has branches without an upstream"
+    if len((git(repo, "worktree", "list") or "").splitlines()) > 1:
+        return "has linked worktrees"
+    if not git(repo, "remote"):
+        return "has no remote"
+    if (repo / ".git").is_file():
+        return "is a worktree of another repo"
+    return None
+
+
+def check_item(p):
+    """Return a reason to refuse p, or None."""
+    if not p.exists() and not p.is_symlink():
+        return "does not exist"
+    if p.is_symlink():
+        return "is a symlink; archive its target instead"
+    try:
+        rel = p.relative_to(H)
+    except ValueError:
+        return "is outside your home folder"
+    if str(rel) == ".":
+        return "is your whole home folder"
+    for n in NEVER:
+        if rel == Path(n) or Path(n) in rel.parents or rel in Path(n).parents:
+            return f"is protected ({n})"
+    top = git(p if p.is_dir() else p.parent, "rev-parse", "--show-toplevel")
+    top = os.path.realpath(top) if top is not None else None
+    if top is not None and Path(top) != p:
+        if git(p.parent if p.is_file() else p, "ls-files", "--", str(p)):
+            return f"contains files tracked by the Git repo {top}; archive the whole repo instead"
+    if top is not None and Path(top) == p and (why := repo_problem(p)):
+        return f"Git repo {why}"
+    if (p / ".git").is_file():
+        return "is a Git worktree of another repo"
+    for gitdir in (H / "github").glob("*/.git/worktrees/*/gitdir"):
+        try:
+            wt = Path(gitdir.read_text().strip()).parent
+        except OSError:
+            continue
+        if wt == p or p in wt.parents:
+            return f"contains a worktree of {gitdir.parents[3].name}"
+    cutoff = time.time() - 24 * 3600
+    for d, ds, fs in os.walk(p) if p.is_dir() else [(str(p.parent), [], [p.name])]:
+        if p.is_dir() and d != str(p) and (".git" in ds or ".git" in fs):  # nested repo or worktree
+            inner = git(d, "rev-parse", "--show-toplevel")
+            if inner is None or os.path.realpath(inner) != os.path.realpath(d):
+                return f"contains {d}/.git, which Git cannot read as a repo"
+            if why := repo_problem(Path(d)):
+                return f"contains the Git repo {d}, which {why}"
+        ds[:] = [x for x in ds if x != ".git"]
+        for f in fs:
+            fp = os.path.join(d, f)
+            try:
+                if os.lstat(fp).st_mtime > cutoff:
+                    return f"was modified in the last 24 hours ({os.path.relpath(fp, p.parent)})"
+            except OSError:
+                pass
+    return None
+
+
+def dest_for(p):
+    rel = p.relative_to(H)
+    base = ("Projects" if rel.parts[0] == "github" else "Personal") / rel
+    return str(base) + (".tar.zst" if p.is_dir() else "")
+
+
+def mount(r):
+    if os.path.ismount(r["mount"]):
+        return
+    if subprocess.run(["diskutil", "mount", r["uuid"]], capture_output=True).returncode != 0:
+        die(f"could not mount {r['label']}. Is the Toshiba drive connected?")
+
+
+def unmount(r):
+    subprocess.run(["sync"])
+    for attempt in range(120):  # Spotlight or Finder can hold a volume briefly; never force it
+        if not os.path.ismount(r["mount"]):
+            return
+        out = subprocess.run(["diskutil", "unmount", r["mount"]], capture_output=True, text=True)
+        if out.returncode == 0:
+            return
+        time.sleep(1)
+    die(f"could not unmount {r['label']} after 2 minutes (close Finder windows on it and retry): {out.stderr.strip()}")
+
+
+def roots():
+    return [off.Root(r) for r in ROOTS]
+
+
+def confirm(question):
+    """Read the answer from the user's terminal, never from stdin, so it cannot be piped in."""
+    try:
+        fd = os.open("/dev/tty", os.O_RDWR | os.O_NOCTTY)
+    except OSError:
+        return False
+    try:
+        os.write(fd, (question + " [y/N] ").encode())
+        answer = b""
+        while not answer.endswith(b"\n"):
+            chunk = os.read(fd, 64)
+            if not chunk:
+                break
+            answer += chunk
+        return answer.decode(errors="replace").strip().lower() in ("y", "yes")
+    finally:
+        os.close(fd)
+
+
+def reverify(names):
+    """Unmount and mount both volumes, then re-hash the destinations of these jobs from the disk."""
+    say("Remounting both volumes to re-verify from the disk ...")
+    for r_spec in reversed(ROOTS):
+        unmount(r_spec)
+    for r_spec in ROOTS:
+        mount(r_spec)
+    rs = roots()
+    return rs, [off.run_reverify_phase(r, names) for r in rs]
+
+
+def finish(plan_path, verified=None):
+    """Ask, then delete. verified: (roots, checked) of a re-verification this run just did; without it
+    both volumes are remounted and re-verified first, so only copies that pass now are trusted."""
+    plan = json.load(open(plan_path))
+    for r in ROOTS:
+        mount(r)
+    jobs = [j for j in plan["jobs"] if Path(j["src"]).exists()]
+    if jobs:
+        rs, checked = verified or reverify({j["src"] for j in jobs})
+        ok = [off.job_state(off.read_manifest(r.manifests[0]), c)[1] for r, c in zip(rs, checked)]
+        for j in jobs:
+            if not all(o.get(j["src"]) for o in ok):
+                say("NOT VERIFIED NOW, will be kept:", j["src"])
+        jobs = [j for j in jobs if all(o.get(j["src"]) for o in ok)]
+    if not jobs:
+        say("Nothing left to delete for this batch.")
+    else:
+        size = sum(int(subprocess.run(["du", "-sk", j["src"]], capture_output=True, text=True).stdout.split()[0])
+                   for j in jobs) / 1048576
+        for j in jobs:
+            say("  ", j["src"])
+        if not confirm(f"Delete these {len(jobs)} items ({size:.2f} GB) from the Mac? Both drive copies are verified."):
+            unmount(ROOTS[1])
+            say(f"Not deleted. Everything is still on the Mac and on both drives.\nTo finish later, run in your Terminal:\n  storage-archive --finish {plan_path}")
+            return
+        before = free_gb()
+        off.run_delete_phase(plan, rs, checked)
+        say(f"Free space: {before:.1f} GB -> {free_gb():.1f} GB")
+    subprocess.run([sys.executable, "-I", str(TOOLS / "make-index.py")])
+    for r in ROOTS:
+        logs = Path(r["path"]) / "Transfer-Logs"
+        shutil.copy2(plan_path, logs / Path(plan_path).name)
+    say("Removed", off.cleanup_appledouble(ROOTS[1]["path"]), "macOS ._ files on TOSHIBA L")
+    unmount(ROOTS[1])
+    say("Done. Restore anything with: storage-restore <original path>")
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help"):
+        print(__doc__); return
+    ARCH.mkdir(parents=True, exist_ok=True)
+    lock = open(ARCH / ".lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        die("another storage-archive run is in progress")
+    if args[0] == "--finish":
+        if len(args) != 2:
+            die("usage: storage-archive --finish <plan>")
+        return finish(args[1])
+
+    items = [Path(os.path.realpath(os.path.dirname(os.path.abspath(os.path.expanduser(a))))) / os.path.basename(os.path.abspath(os.path.expanduser(a))) for a in args]  # resolve parents, keep the item itself
+    for a in items:
+        for b in items:
+            if a != b and a in b.parents:
+                die(f"{b} is inside {a}; pass only one of them")
+    refused = {str(p): r for p in items if (r := check_item(p))}
+    if refused:
+        for p, r in refused.items():
+            say(f"REFUSED {p}: {r}")
+        die("nothing was copied or deleted")
+    if not os.path.ismount(ROOTS[0]["mount"]):
+        mount(ROOTS[0])
+
+    plan_path = ARCH / f"plan-{time.strftime('%Y%m%d-%H%M%S')}.json"
+    plan = {"roots": ROOTS, "jobs": [{"src": str(p), "dest": dest_for(p), "mode": "tzst" if p.is_dir() else "copy",
+                                      "category": "storage-archive"} for p in items]}
+    json.dump(plan, open(plan_path, "w"), indent=1)
+    names = {j["src"] for j in plan["jobs"]}
+    say(f"Plan: {plan_path} ({len(items)} items)")
+
+    rs = roots()
+    for r_spec, r in zip(ROOTS, rs):
+        mount(r_spec)
+        say(f"Copying to {r.label} ...")
+        if not off.run_copy_phase(plan, r):
+            die(f"{r.label} disconnected. Nothing was deleted. Reconnect the drive and run the same command again.", 2)
+    rs, checked = reverify(names)
+    bad = []
+    for r, c in zip(rs, checked):
+        inv, ok = off.job_state(off.read_manifest(r.manifests[0]), c)
+        bad += [f"{j} on {r.label}" for j in names if not ok.get(j) or j not in inv]
+    if bad:
+        unmount(ROOTS[1])
+        die("these items are not fully verified, nothing was deleted: " + "; ".join(bad))
+    say("All items copied and verified on both volumes.")
+    finish(str(plan_path), (rs, checked))
+
+
+def _leave_toshiba_unmounted():
+    """TOSHIBA L holds the user's other data, so never leave it mounted after a run, even on errors."""
+    r = ROOTS[1]
+    for _ in range(120):
+        if not os.path.ismount(r["mount"]):
+            return
+        subprocess.run(["sync"])
+        if subprocess.run(["diskutil", "unmount", r["mount"]], capture_output=True).returncode == 0:
+            return
+        time.sleep(1)
+    say(f"WARNING: could not unmount {r['label']}; unmount it in Finder before moving the drive")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    finally:
+        if len(sys.argv) > 1 and sys.argv[1] not in ("-h", "--help"):
+            _leave_toshiba_unmounted()

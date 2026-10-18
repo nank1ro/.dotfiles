@@ -145,3 +145,13 @@ it. No automatic Caveman hook or plugin is needed.
 
 Never use the em dash (U+2014) anywhere: code, comments, docs, commit messages,
 slides, or chat. Use a colon, comma, parentheses, or a new sentence instead.
+
+## 7. Archived files
+
+Some files were moved to the external Toshiba drive (volume `Dev`). Before treating a
+missing file or folder as lost, check `~/.agents/ARCHIVE.md`; restore with
+`storage-restore <original path>`, never recreate it, and ask the user to connect the
+drive if it is not mounted.
+To archive something, run `storage-archive <paths>` only when the user asks for it. It
+copies and verifies on both drive volumes, then asks for a "y" at the user's own terminal
+before deleting; never answer that prompt for the user.

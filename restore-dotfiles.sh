@@ -171,6 +171,15 @@ restore_file "$REPO_ROOT/.gitconfig" "$HOME/.gitconfig"
 restore_file "$REPO_ROOT/bin/reclaim" "$HOME/.local/bin/reclaim"
 [ -f "$HOME/.local/bin/reclaim" ] && chmod +x "$HOME/.local/bin/reclaim"
 
+# storage-rescue CLIs and their engine (storage-archive expects ../share/storage-rescue)
+restore_file "$REPO_ROOT/bin/storage-archive" "$HOME/.local/bin/storage-archive"
+restore_file "$REPO_ROOT/bin/storage-restore" "$HOME/.local/bin/storage-restore"
+restore_file "$REPO_ROOT/share/storage-rescue/offload.py" "$HOME/.local/share/storage-rescue/offload.py"
+restore_file "$REPO_ROOT/share/storage-rescue/make-index.py" "$HOME/.local/share/storage-rescue/make-index.py"
+for f in storage-archive storage-restore; do
+  [ -f "$HOME/.local/bin/$f" ] && chmod +x "$HOME/.local/bin/$f"
+done
+
 # git hooks: arm the tracked pre-commit hook on this clone (git never clones .git/hooks/)
 arm_hooks
 

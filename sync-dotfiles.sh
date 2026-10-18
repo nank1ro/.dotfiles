@@ -193,6 +193,29 @@ else
   echo "⚠ Skipping reclaim: source file not found"
 fi
 
+# Sync storage-rescue CLIs (archive to / restore from the Toshiba drive) and their engine.
+# storage-archive finds its engine at ../share/storage-rescue relative to itself, so keep
+# the same layout in the repo.
+storage_files=(
+  ".local/bin/storage-archive:bin/storage-archive"
+  ".local/bin/storage-restore:bin/storage-restore"
+  ".local/share/storage-rescue/offload.py:share/storage-rescue/offload.py"
+  ".local/share/storage-rescue/make-index.py:share/storage-rescue/make-index.py"
+)
+for pair in "${storage_files[@]}"; do
+  live="$HOME/${pair%%:*}"; repo="$REPO_ROOT/${pair#*:}"
+  if [ -f "$live" ]; then
+    mkdir -p "$(dirname "$repo")"
+    cp "$live" "$repo"
+  else
+    echo "⚠ Skipping ${pair%%:*}: source file not found"
+  fi
+done
+if [ -n "$(git status --porcelain bin/storage-archive bin/storage-restore share/storage-rescue/)" ]; then
+  echo "✓ Synced storage-rescue CLIs"
+  has_changes=true
+fi
+
 if [ "$has_changes" = false ]; then
   echo "✓ All configs already up to date"
 fi

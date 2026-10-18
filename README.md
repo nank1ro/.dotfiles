@@ -56,5 +56,8 @@ so the sync-on-commit works on a fresh machine. New machine: `git clone …` →
 | finicky | `~/.config/finicky/finicky.js` | `finicky/finicky.js` |
 | gitconfig | `~/.gitconfig` | `.gitconfig` |
 | reclaim | `~/.local/bin/reclaim` | `bin/reclaim` |
+| storage-archive | `~/.local/bin/storage-archive` | `bin/storage-archive` |
+| storage-restore | `~/.local/bin/storage-restore` | `bin/storage-restore` |
+| storage-rescue engine | `~/.local/share/storage-rescue/{offload,make-index}.py` | `share/storage-rescue/` |
 
 > The `nvim` config is deprecated and has been moved to [here](https://github.com/nank1ro/nvim_config).
