@@ -6,15 +6,16 @@ reclaim — free disk by clearing regenerable dev caches & build artifacts.
 
 Clears: npm/pnpm/yarn/bun/pub/gradle/cargo/go/CocoaPods/conda/NuGet/Hex/Cabal/
 Ivy caches, Ruby .gem archives, nvm/pyenv/rbenv/asdf downloads, ~/.cache, Flutter
-build artifacts, Dart analyzer cache, Xcode DerivedData + DeviceSupport + Archives,
+build artifacts, Dart analyzer cache, Xcode DerivedData + DeviceSupport,
 Homebrew old versions, unused Docker images/containers/build cache (keeps volumes),
 ~/Library/Caches + Logs, VS Code/Cursor/Windsurf, Slack and Discord caches (when
 closed), Raycast update downloads, Zed's npm cache, Mail
 downloads, broken preference files, the Trash (incl. external drives),
 agent-reviews ledgers, OpenCode snapshots, Codex temp files, inactive Claude Code
 versions, T3 Code caches + state DB VACUUM (no data lost, when closed), and AI
-transcripts/logs older than 14 days. With your admin password (asked once): the
-system icon + symbol caches, /Library/Logs and rotated /var/log files.
+transcripts/logs older than 14 days. If you pick "Clean + system caches & logs"
+(admin password): the system icon + symbol caches, /Library/Logs and rotated
+/var/log files.
 Always removes Claude/T3 Code/Codex worktrees untouched for 14+ days if clean
 and their commits are on a branch.
 
@@ -23,7 +24,8 @@ and iOS backups ("Don't ask again" is stored in ~/.local/state/reclaim).
 
 Checklists (interactive terminal only): linked git worktrees (uncommitted ones
 unticked), stale worktrees kept for safety, orphaned worktree dirs, login items
-whose program is gone, and opt-in real data (iOS backups, deleted users' homes).
+whose program is gone, and opt-in real data (iOS backups, Xcode archives,
+deleted users' homes).
 
 Never touches: source code, browser profiles, SDK-matched simulator runtimes,
 installed CLI binaries (~/.cargo/bin, ~/.pub-cache/bin), or JetBrains/Android
@@ -34,7 +36,7 @@ on first run; falls back to plain text when gum is unavailable or output is pipe
 
 Usage:
   reclaim            confirm, then clean
-  reclaim -y         skip the Proceed prompt (checklists still appear)
+  reclaim -y         skip the start question, plain Clean (checklists still appear)
   reclaim --deep     ALSO remove node_modules, Python .venv and Rust target/ across ~/github
                      (regenerable, but forces reinstall in ALL projects)
 EOF
@@ -152,25 +154,33 @@ XCODE_RUNNING=0; pgrep -xq Xcode && XCODE_RUNNING=1
 disk; START_FREE=$FREE
 banner=("reclaim · $(usage_line)" ""
   "Clears dev + language caches, build artifacts, unused Docker data (not volumes),"
-  "Xcode DerivedData/DeviceSupport/Archives, ~/Library/Caches & Logs, editor + app caches,"
+  "Xcode DerivedData/DeviceSupport, ~/Library/Caches & Logs, editor + app caches,"
   "Mail downloads, broken prefs, Trash, AI tool logs >14d, T3 Code caches + DB VACUUM."
   "Optional (admin password): system icon/symbol caches and system logs."
-  "Checklists: worktrees, broken login items, opt-in iOS backups / deleted users."
+  "Checklists: worktrees, broken login items, opt-in iOS backups / Xcode archives / deleted users."
   "Keeps source, browsers, simulator runtimes, installed CLIs/toolchains, IDE history.")
 [[ $DEEP == 1 ]] && banner+=("--deep: also node_modules, .venv and Rust target/ across ~/github")
 [[ $XCODE_RUNNING == 1 ]] && banner+=("" "!! Xcode is running, skipping DerivedData & DeviceSupport (quit Xcode to include).")
 if [[ $UI == 1 ]]; then gum style --border rounded --border-foreground 8 --padding "0 1" "${banner[@]}"
 else printf '%s\n' "${banner[@]}"; fi
+# One start question; -y means a plain Clean (no admin password).
+mode=Clean
 if [[ $YES == 0 ]]; then
-  confirm "Proceed?" || { echo "Aborted."; exit 0; }
+  if [[ $UI == 1 ]]; then
+    mode=$(gum choose --header "What should reclaim do?" "Clean" "Clean + system caches & logs (admin password)" "Abort" </dev/tty) || mode=Abort
+  else
+    read -r -p "[c]lean, clean + [s]ystem caches & logs (admin password), or [a]bort? " a </dev/tty || a=""
+    case $a in [cC]*) mode=Clean ;; [sS]*) mode="Clean + system" ;; *) mode=Abort ;; esac
+  fi
 fi
+[[ $mode == Abort ]] && { echo "Aborted."; exit 0; }
 START_T=$SECONDS
 disk; START_FREE=$FREE
 
-# --- system caches & logs (root-owned): one admin prompt up front; skipped if declined ---
+# --- system caches & logs (root-owned): admin password up front; Ctrl-C at the prompt only skips them ---
 SUDO=0
-if [[ $ASK == 1 ]] && confirm "Also clean system caches & logs? (asks for your admin password)"; then
-  trap ':' INT; sudo -v </dev/tty && SUDO=1; trap on_int INT  # Ctrl-C here only skips this part
+if [[ $mode == "Clean + "* ]]; then
+  trap ':' INT; sudo -v </dev/tty && SUDO=1; trap on_int INT
 fi
 if [[ $SUDO == 1 ]]; then
   { while sudo -n -v 2>/dev/null; do sleep 50; done; } </dev/null >/dev/null 2>&1 &
@@ -275,8 +285,6 @@ if [[ $XCODE_RUNNING == 0 ]]; then
          "${HOME:?}/Library/Developer/CoreSimulator/Caches/"* 2>/dev/null
   have xcrun && run xcrun simctl delete unavailable; sp
 fi
-# Xcode Archives (opted in — these include release-build dSYMs for crash symbolication)
-step "Xcode Archives"; rm -rf "${HOME:?}/Library/Developer/Xcode/Archives/"* 2>/dev/null; sp
 
 # --- Rust ---
 have cargo && { step "Cargo registry/git cache (keeps ~/.cargo/bin & config)"
@@ -463,11 +471,15 @@ sp
 
 # --- real data, opt-in only (nothing preselected): iOS device backups, deleted users' archived homes ---
 if [[ $ASK == 1 ]]; then
-  data=(); STEP="Looking for iOS backups and deleted users"; spin_start  # du on big backups takes a while
+  data=(); STEP="Looking for iOS backups, Xcode archives and deleted users"; spin_start  # du on big backups is slow
   for b in "${HOME:?}/Library/Application Support/MobileSync/Backup/"*/; do  # needs Full Disk Access
     [[ -d "$b" ]] || continue; b=${b%/}
     n=$(plutil -extract "Device Name" raw -o - "$b/Info.plist" 2>/dev/null)
-    data+=("$b │ iOS backup of ${n:-unknown device}, $(stat -f %Sm -t %Y-%m-%d "$b"), $(du -sh "$b" 2>/dev/null | cut -f1)")
+    data+=("$b │ iOS backup of ${n:-unknown device}, $(stat -f %Sm -t %Y-%m-%d "$b"), $(du -sh "$b" 2>/dev/null | awk '{ print $1 }')")
+  done
+  # Release builds + dSYMs: needed to symbolicate crash reports of shipped versions, not regenerable.
+  for x in "${HOME:?}/Library/Developer/Xcode/Archives/"*/*.xcarchive; do
+    [[ -d "$x" ]] && data+=("$x │ Xcode archive (build + dSYMs), $(du -sh "$x" 2>/dev/null | awk '{ print $1 }')")
   done
   if [[ $SUDO == 1 ]]; then
     while IFS= read -r u; do data+=("/Users/Deleted Users/$u │ archived home of a deleted user"); done \
@@ -478,6 +490,7 @@ if [[ $ASK == 1 ]]; then
     while IFS= read -r l; do
       [[ -n "$l" ]] || continue; f=${l%% │*}
       if [[ $f == "/Users/Deleted Users/"* ]]; then sudo -n rm -rf "$f"; else rm -rf "$f"; fi
+      [[ $f == *.xcarchive ]] && rmdir "${f%/*}" 2>/dev/null  # drop the now-empty date folder
     done < <(pick "Real data, not cache: tick only what you want deleted for good" "" "${data[@]}")
   fi
 fi
