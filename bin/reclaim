@@ -8,7 +8,8 @@ Clears: npm/pnpm/yarn/pub/gradle/cargo/go/CocoaPods caches, ~/.cache,
 Flutter build artifacts, Dart analyzer cache, Xcode DerivedData + DeviceSupport,
 Homebrew old versions, ALL unused Docker images, ~/Library/Caches, ~/Library/Logs,
 Xcode Archives, the Trash, agent-reviews ledgers in ~/github repos and ~/flutter,
-OpenCode undo snapshots, Codex temp files, and inactive Claude Code versions.
+OpenCode undo snapshots, Codex temp files, inactive Claude Code versions, and
+T3 Code Electron caches; VACUUMs the T3 Code state DB (no data lost) when closed.
 Asks before deleting linked git worktrees and orphaned Claude/T3 Code/Codex
 worktree dirs (skipped with -y). Always removes Claude/T3 Code/Codex worktrees
 untouched for 14+ days if clean and their commits are on a branch; warns otherwise.
@@ -51,7 +52,7 @@ echo "reclaim: clears dev caches, build artifacts, Docker images, Xcode DerivedD
 echo "         DeviceSupport, ~/Library/Caches & Logs, Xcode Archives, and Trash."
 echo "         Also: .git/agent-reviews; asks per repo before deleting linked + orphaned worktrees;"
 echo "         AI tool transcripts/logs older than 14 days; Dart analyzer cache; OpenCode snapshots;"
-echo "         Codex temp files; inactive Claude Code versions."
+echo "         Codex temp files; inactive Claude Code versions; T3 Code caches + state DB VACUUM."
 echo "         Keeps source, browsers, simulator runtimes, installed CLIs, IDE history."
 [[ $DEEP == 1 ]] && echo "         --deep: also node_modules + .venv across ~/github"
 echo
@@ -201,6 +202,20 @@ find "${HOME:?}/.claude/projects" -type f -name '*.jsonl' -mtime +14 -not -path 
 find "${HOME:?}/.codex/sessions" "${HOME:?}/.local/share/opencode/log" "${HOME:?}/.t3/userdata/logs" \
      -type f -mtime +14 -delete 2>/dev/null
 find "${HOME:?}/.claude/projects" "${HOME:?}/.codex/sessions" -mindepth 1 -type d -empty -delete 2>/dev/null; sp
+
+# --- T3 Code: compact state DB (keeps all data) + Electron caches; only while T3 Code is closed ---
+step "T3 Code state DB VACUUM + Electron caches"
+t3db="${HOME:?}/.t3/userdata/statev2.sqlite"
+if [[ ! -x /usr/sbin/lsof ]]; then
+  echo "   !! /usr/sbin/lsof not found, skipped (cannot verify T3 Code is closed)"
+elif pgrep -f 'T3 Code' >/dev/null || { [[ -f "$t3db" ]] && /usr/sbin/lsof -t -- "$t3db" >/dev/null 2>&1; }; then
+  echo "   !! T3 Code is running, skipped (quit it to include)"
+else
+  [[ -f "$t3db" ]] && have sqlite3 && run sqlite3 "$t3db" 'VACUUM;'
+  for a in "${HOME:?}/Library/Application Support/"{t3code,t3code-v2}; do
+    rm -rf "$a/"{Cache,"Code Cache",GPUCache} "$a/Partitions/"*/{Cache,"Code Cache",GPUCache} 2>/dev/null
+  done
+fi; sp
 
 # --- AI tool scratch data (undo snapshots, temp files, old binaries) ---
 step "OpenCode snapshots, Codex temp files, inactive Claude Code versions"
