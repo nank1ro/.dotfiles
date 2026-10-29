@@ -266,7 +266,7 @@ step "T3 Code state DB VACUUM + Electron caches"
 t3db="${HOME:?}/.t3/userdata/statev2.sqlite"
 if [[ ! -x /usr/sbin/lsof ]]; then
   note "!! /usr/sbin/lsof not found, skipped (cannot verify T3 Code is closed)"
-elif pgrep -f 'T3 Code' >/dev/null || { [[ -f "$t3db" ]] && /usr/sbin/lsof -t -- "$t3db" >/dev/null 2>&1; }; then
+elif pgrep -f 'T3 Code[^/]*\.app/' >/dev/null || { [[ -f "$t3db" ]] && /usr/sbin/lsof -t -- "$t3db" >/dev/null 2>&1; }; then
   note "!! T3 Code is running, skipped (quit it to include)"
 else
   [[ -f "$t3db" ]] && have sqlite3 && run sqlite3 "$t3db" 'VACUUM;'
