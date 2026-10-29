@@ -64,5 +64,6 @@
   "skipAutoPermissionPrompt": true,
   "preferences": {
     "secureVmFeaturesEnabled": false
-  }
+  },
+  "awaySummaryEnabled": false
 }
