@@ -175,6 +175,15 @@ confirm() {
   if [[ $UI == 1 ]]; then gum confirm --default=false "$1" </dev/tty
   else local a; read -r -p "$1 [y/N] " a </dev/tty || a=""; [[ $a == [yY]* ]]; fi
 }
+# box COLOR BOLD LINE...: gum box as wide as its longest line, but never wider than the terminal
+# (gum then wraps text inside the border instead of the terminal wrapping the border).
+box() {
+  local fg=$1 bold=$2 l w=0 cols; shift 2
+  cols=$(stty size </dev/tty 2>/dev/null | awk '{ print $2 }'); [ "${cols:-0}" -gt 0 ] 2>/dev/null || cols=80
+  for l in "$@"; do (( ${#l} > w )) && w=${#l}; done
+  w=$(( w + 4 )); (( w > cols - 1 )) && w=$(( cols - 1 ))
+  gum style --border rounded --border-foreground "$fg" ${bold:+--bold} --padding "0 1" --width "$w" "$@"
+}
 short() { case $1 in "$HOME"/*) printf '%s\n' "~${1#"$HOME"}" ;; *) printf '%s\n' "$1" ;; esac; }
 # pick HEADER SELECTED ITEM...: prints the chosen items, one per line. Items are "path │ details",
 # shown with ~ for $HOME. UI: gum multi-select, SELECTED is a comma list of items or "*";
@@ -227,7 +236,7 @@ banner=("reclaim · $(usage_line)" ""
   "Keeps source, browsers, simulator runtimes, installed CLIs/toolchains, IDE history.")
 [[ $DEEP == 1 ]] && banner+=("--deep: also node_modules, .venv and Rust target/ across ~/github")
 [[ $XCODE_RUNNING == 1 ]] && banner+=("" "!! Xcode is running, skipping DerivedData & DeviceSupport (quit Xcode to include).")
-if [[ $UI == 1 ]]; then gum style --border rounded --border-foreground 8 --padding "0 1" "${banner[@]}"
+if [[ $UI == 1 ]]; then box 8 "" "${banner[@]}"
 else printf '%s\n' "${banner[@]}"; fi
 # One start question; -y means a plain Clean (no admin password).
 mode=Clean
@@ -614,5 +623,5 @@ bg_running && { step "Finishing background jobs"; while bg_running; do sleep 0.2
 sp; reap; disk
 done_msg="Freed $(gb $((FREE - START_FREE))) in $((SECONDS - START_T))s · now $(usage_line)"
 echo
-if [[ $UI == 1 ]]; then gum style --border rounded --border-foreground 2 --padding "0 1" --bold "$done_msg"
+if [[ $UI == 1 ]]; then box 2 bold "$done_msg"
 else echo "DONE: $done_msg"; fi
