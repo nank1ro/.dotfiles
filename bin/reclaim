@@ -4,16 +4,22 @@ set -uo pipefail
 usage() { cat <<'EOF'
 reclaim — free disk by clearing regenerable dev caches & build artifacts.
 
-Clears: npm/pnpm/yarn/pub/gradle/cargo/go/CocoaPods caches, ~/.cache,
-Flutter build artifacts, Dart analyzer cache, Xcode DerivedData + DeviceSupport,
-Homebrew old versions, unused Docker images/containers/build cache (keeps volumes), ~/Library/Caches, ~/Library/Logs,
-Xcode Archives, the Trash, agent-reviews ledgers in ~/github repos and ~/flutter,
-OpenCode undo snapshots, Codex temp files, inactive Claude Code versions, and
-T3 Code Electron caches; VACUUMs the T3 Code state DB (no data lost) when closed.
-Asks before deleting linked git worktrees and orphaned Claude/T3 Code/Codex
-worktree dirs (skipped with -y). Always removes Claude/T3 Code/Codex worktrees
-untouched for 14+ days if clean and their commits are on a branch; warns otherwise.
-Prunes AI transcripts/logs older than 14 days (Claude, Codex, OpenCode, T3).
+Clears: npm/pnpm/yarn/bun/pub/gradle/cargo/go/CocoaPods/conda/NuGet/Hex/Cabal/
+Ivy caches, Ruby .gem archives, nvm/pyenv/rbenv/asdf downloads, ~/.cache, Flutter
+build artifacts, Dart analyzer cache, Xcode DerivedData + DeviceSupport + Archives,
+Homebrew old versions, unused Docker images/containers/build cache (keeps volumes),
+~/Library/Caches + Logs, VS Code/Cursor/Windsurf caches (when closed), Mail
+downloads, broken preference files, the Trash (incl. external drives),
+agent-reviews ledgers, OpenCode snapshots, Codex temp files, inactive Claude Code
+versions, T3 Code caches + state DB VACUUM (no data lost, when closed), and AI
+transcripts/logs older than 14 days. With your admin password (asked once): the
+system icon + symbol caches, /Library/Logs and rotated /var/log files.
+Always removes Claude/T3 Code/Codex worktrees untouched for 14+ days if clean
+and their commits are on a branch.
+
+Checklists (interactive terminal only): linked git worktrees (uncommitted ones
+unticked), stale worktrees kept for safety, orphaned worktree dirs, login items
+whose program is gone, and opt-in real data (iOS backups, deleted users' homes).
 
 Never touches: source code, browser profiles, SDK-matched simulator runtimes,
 installed CLI binaries (~/.cargo/bin, ~/.pub-cache/bin), or JetBrains/Android
@@ -24,8 +30,8 @@ on first run; falls back to plain text when gum is unavailable or output is pipe
 
 Usage:
   reclaim            confirm, then clean
-  reclaim -y         skip the prompt (cron-safe)
-  reclaim --deep     ALSO remove node_modules + Python .venv across ~/github
+  reclaim -y         skip the Proceed prompt (checklists still appear)
+  reclaim --deep     ALSO remove node_modules, Python .venv and Rust target/ across ~/github
                      (regenerable, but forces reinstall in ALL projects)
 EOF
 }
@@ -79,7 +85,7 @@ fi
 UI=0; [[ -t 1 ]] && have gum && UI=1
 
 # step NAME starts a step (spinner in UI mode); sp ends it and reports the space it freed.
-STEP=""; SPIN=""; pids=()
+STEP=""; SPIN=""; pids=(); SUDO_KEEP=""
 # Spinner is a bash loop, not `gum spin`: gum can miss a kill that lands during its startup and hang wait.
 spin_start() {
   [[ $UI == 1 ]] || return 0
@@ -108,24 +114,37 @@ sp() {
   else printf '\033[2m· %8s  %s%s\033[0m\n' "$(gb $freed)" "$STEP" "$tm"; fi
   STEP=""
 }
+ASK=0; [[ -t 0 ]] && ASK=1  # checklists and questions need an interactive terminal
 confirm() {
-  if [[ $UI == 1 ]]; then gum confirm --default=false "$1"
-  else local a; read -r -p "$1 [y/N] " a || a=""; [[ $a == [yY]* ]]; fi
+  if [[ $UI == 1 ]]; then gum confirm --default=false "$1" </dev/tty
+  else local a; read -r -p "$1 [y/N] " a </dev/tty || a=""; [[ $a == [yY]* ]]; fi
 }
-trap 'spin_stop' EXIT
-trap 'spin_stop; echo; echo "Interrupted."; kill -TERM ${pids[@]+"${pids[@]}"} 2>/dev/null; wait ${pids[@]+"${pids[@]}"} 2>/dev/null; exit 130' INT TERM
+# pick HEADER SELECTED ITEM...: prints the chosen items, one per line. Items are "path │ details".
+# UI: gum multi-select, SELECTED is a comma list of preselected items or "*"; plain: one y/N for all.
+pick() {
+  local header=$1 sel=$2; shift 2
+  if [[ $UI == 1 ]]; then gum choose --no-limit --height 15 --header "$header" --selected "$sel" "$@" </dev/tty || true
+  else { echo; echo "$header"; printf '   %s\n' "$@"; } >&2; confirm "Delete them?" && printf '%s\n' "$@"; fi
+}
+on_int() {
+  spin_stop; echo; echo "Interrupted."
+  [[ -z $SUDO_KEEP ]] || kill "$SUDO_KEEP" 2>/dev/null
+  kill -TERM ${pids[@]+"${pids[@]}"} 2>/dev/null; wait ${pids[@]+"${pids[@]}"} 2>/dev/null; exit 130
+}
+trap 'spin_stop; [[ -z $SUDO_KEEP ]] || kill "$SUDO_KEEP" 2>/dev/null' EXIT
+trap on_int INT TERM
 
 XCODE_RUNNING=0; pgrep -xq Xcode && XCODE_RUNNING=1
 
 disk; START_FREE=$FREE
 banner=("reclaim · $(usage_line)" ""
-  "Clears dev caches, build artifacts, unused Docker data (not volumes), Xcode DerivedData,"
-  "DeviceSupport, ~/Library/Caches & Logs, Xcode Archives, and Trash."
-  "Also: .git/agent-reviews; asks per repo before deleting linked + orphaned worktrees;"
-  "AI tool transcripts/logs older than 14 days; Dart analyzer cache; OpenCode snapshots;"
-  "Codex temp files; inactive Claude Code versions; T3 Code caches + state DB VACUUM."
-  "Keeps source, browsers, simulator runtimes, installed CLIs, IDE history.")
-[[ $DEEP == 1 ]] && banner+=("--deep: also node_modules + .venv across ~/github")
+  "Clears dev + language caches, build artifacts, unused Docker data (not volumes),"
+  "Xcode DerivedData/DeviceSupport/Archives, ~/Library/Caches & Logs, editor caches,"
+  "Mail downloads, broken prefs, Trash, AI tool logs >14d, T3 Code caches + DB VACUUM."
+  "Optional (admin password): system icon/symbol caches and system logs."
+  "Checklists: worktrees, broken login items, opt-in iOS backups / deleted users."
+  "Keeps source, browsers, simulator runtimes, installed CLIs/toolchains, IDE history.")
+[[ $DEEP == 1 ]] && banner+=("--deep: also node_modules, .venv and Rust target/ across ~/github")
 [[ $XCODE_RUNNING == 1 ]] && banner+=("" "!! Xcode is running, skipping DerivedData & DeviceSupport (quit Xcode to include).")
 if [[ $UI == 1 ]]; then gum style --border rounded --border-foreground 8 --padding "0 1" "${banner[@]}"
 else printf '%s\n' "${banner[@]}"; fi
@@ -134,16 +153,35 @@ if [[ $YES == 0 ]]; then
 fi
 START_T=$SECONDS
 disk; START_FREE=$FREE
+
+# --- system caches & logs (root-owned): one admin prompt up front; skipped if declined ---
+SUDO=0
+if [[ $ASK == 1 ]] && confirm "Also clean system caches & logs? (asks for your admin password)"; then
+  trap ':' INT; sudo -v </dev/tty && SUDO=1; trap on_int INT  # Ctrl-C here only skips this part
+fi
+if [[ $SUDO == 1 ]]; then
+  { while sudo -n -v 2>/dev/null; do sleep 50; done; } </dev/null >/dev/null 2>&1 &
+  SUDO_KEEP=$!
+fi
 echo
+if [[ $SUDO == 1 ]]; then
+  step "System caches & logs (icon + symbol caches, /Library/Logs, rotated /var/log)"
+  sudo -n sh -c 'rm -rf /Library/Caches/com.apple.iconservices.store /System/Library/Caches/com.apple.coresymbolicationd/*' 2>/dev/null
+  sudo -n killall iconservicesd 2>/dev/null  # launchd restarts it; icons rebuild on demand
+  sudo -n find /Library/Logs -type f -delete 2>/dev/null
+  sudo -n find /private/var/log -type f \( -name '*.gz' -o -name '*.bz2' -o -name '*.[0-9]' \) -delete 2>/dev/null
+  sp
+fi
 
 # --- package managers: independent and slow to start (brew ~8s, pnpm ~4s), so run concurrently ---
 par() { "$@" </dev/null >/dev/null 2>&1 & pids+=($!); }
-step "Package caches: npm, pnpm, yarn, CocoaPods, Go, Homebrew, Docker"
+step "Package caches: npm, pnpm, yarn, CocoaPods, Go, conda, Homebrew, Docker"
 have npm    && par npm cache clean --force
 have pnpm   && par pnpm store prune
 have yarn   && par yarn cache clean
 have pod    && par pod cache clean --all
 have go     && par go clean -cache -modcache
+have conda  && par conda clean -a -y
 have brew   && par brew cleanup --prune=all
 have docker && par docker system prune -a -f  # stopped containers, unused networks, ALL unused images, build cache; keeps volumes
 (( ${#pids[@]} )) && wait "${pids[@]}"
@@ -152,6 +190,15 @@ sp
 
 # --- generic user cache (whole ~/.cache; may include ML/tool caches, all regenerable) ---
 step "~/.cache"; rm -rf "${HOME:?}/.cache/"* 2>/dev/null; sp
+
+# --- other language/toolchain download caches (installed toolchains and gems are kept) ---
+step "Language caches: Bun, Yarn Berry, Gradle wrappers, Ivy, NuGet, Hex, Cabal, Ruby .gem, version-manager downloads"
+rm -rf "${HOME:?}/.bun/install/cache" "${HOME:?}/.yarn/berry/cache" \
+       "${HOME:?}/.gradle/wrapper/dists" "${HOME:?}/.ivy2/cache" "${HOME:?}/.nuget/packages" \
+       "${HOME:?}/.hex/packages" "${HOME:?}/.cabal/packages" "${HOME:?}/.android/cache" \
+       "${HOME:?}/.nvm/.cache" "${HOME:?}/.pyenv/cache" "${HOME:?}/.rbenv/cache" "${HOME:?}/.asdf/downloads" \
+       "${HOME:?}/.gem/ruby/"*/cache "${HOME:?}/.rbenv/versions/"*/lib/ruby/gems/*/cache \
+       "${HOME:?}/.local/share/mise/installs/ruby/"*/lib/ruby/gems/*/cache 2>/dev/null; sp
 
 # --- Dart / Flutter ---
 step "Flutter build/.dart_tool in ~/github (pubspec-guarded)"
@@ -179,7 +226,7 @@ step "Xcode Archives"; rm -rf "${HOME:?}/Library/Developer/Xcode/Archives/"* 2>/
 
 # --- Rust ---
 have cargo && { step "Cargo registry/git cache (keeps ~/.cargo/bin & config)"
-  rm -rf "${HOME:?}/.cargo/registry/cache" "${HOME:?}/.cargo/registry/src" \
+  rm -rf "${HOME:?}/.cargo/registry/cache" "${HOME:?}/.cargo/registry/src" "${HOME:?}/.cargo/registry/index" \
          "${HOME:?}/.cargo/git/checkouts" "${HOME:?}/.cargo/git/db" 2>/dev/null; sp; }
 
 # --- Android / Gradle ---
@@ -194,8 +241,27 @@ find "${HOME:?}/Library/Caches" -mindepth 1 -maxdepth 1 \
      -exec rm -rf {} + 2>/dev/null; sp
 step "~/Library/Logs"; rm -rf "${HOME:?}/Library/Logs/"* 2>/dev/null; sp
 
-# --- Trash (opted in — irreversible) ---
-step "Trash"; rm -rf "${HOME:?}/.Trash/"* 2>/dev/null; sp
+# --- VS Code-family editors: Electron caches, logs, cached extension installers (only while closed) ---
+step "Editor caches: VS Code, Cursor, Windsurf"
+for e in "Code:Visual Studio Code" "Cursor:Cursor" "Windsurf:Windsurf"; do
+  d="${HOME:?}/Library/Application Support/${e%%:*}"; [[ -d "$d" ]] || continue
+  if pgrep -f "${e#*:}[^/]*\.app/" >/dev/null; then note "!! ${e#*:} is running, skipped (quit it to include)"; continue; fi
+  rm -rf "$d/"{Cache,CachedData,CachedExtensionVSIXs,"Code Cache",GPUCache,logs} 2>/dev/null
+done; sp
+
+# Copies Mail saved when attachments were opened; originals stay in Mail. Needs Full Disk Access.
+step "Mail downloads"
+rm -rf "${HOME:?}/Library/Containers/com.apple.mail/Data/Library/Mail Downloads/"* 2>/dev/null; sp
+
+# Preference files plutil cannot parse are corrupt; apps recreate them with defaults.
+step "Broken preference files"
+prefs=("${HOME:?}/Library/Preferences/"*.plist "${HOME:?}/Library/Preferences/ByHost/"*.plist)
+plutil -lint "${prefs[@]}" 2>&1 >/dev/null | while IFS= read -r l; do  # failures go to stderr as "path: (why)"
+  f=${l%%: (*}; [[ -f "$f" ]] && rm -f "$f"
+done; sp
+
+# --- Trash (opted in — irreversible), incl. this user's trash on external drives ---
+step "Trash"; find "${HOME:?}/.Trash" /Volumes/*/.Trashes/"$(id -u)" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; sp
 
 # --- agent review ledgers (local-only, regenerable) ---
 # ~/flutter holds the snapshots of its worktrees that live in ~/github.
@@ -220,48 +286,69 @@ wt_common() {
 
 # --- stale agent worktrees (untouched 14+ days, clean, HEAD on a branch; runs with -y too) ---
 step "Claude/T3 Code/Codex worktrees untouched >14d (clean, commits on a branch)"
+kept=()
 while IFS= read -r -u 3 w; do
   common=$(wt_common "$w") || continue
   [[ -z "$(find "$w" -mtime -14 -print -quit 2>/dev/null)" ]] || continue
-  [[ -z "$(git -C "$w" status --porcelain 2>/dev/null)" ]] || { note "!! kept (uncommitted changes, check it): $w"; continue; }
-  [[ -n "$(git -C "$w" for-each-ref --count=1 --contains HEAD refs/heads refs/remotes 2>/dev/null)" ]] || { note "!! kept (commits on no branch, check it): $w"; continue; }
+  st=$(git -C "$w" status --porcelain 2>/dev/null) || { note "!! kept (git status failed): $w"; kept+=("$w │ git status failed"); continue; }
+  [[ -z "$st" ]] || { note "!! kept (uncommitted changes): $w"; kept+=("$w │ uncommitted changes"); continue; }
+  [[ -n "$(git -C "$w" for-each-ref --count=1 --contains HEAD refs/heads refs/remotes 2>/dev/null)" ]] || { note "!! kept (commits on no branch): $w"; kept+=("$w │ commits on no branch"); continue; }
   git -C "$common" worktree remove "$w" </dev/null >/dev/null 2>&1 && note "removed $w"
 done 3< <(agent_wts)
 sp
-
-# --- linked git worktrees (per-repo confirmation; skipped with -y) ---
-if [[ $YES == 0 && -d "$GH" ]]; then
-  while IFS= read -r -u 3 g; do
-    [[ -n "$(ls -A "$g/worktrees" 2>/dev/null)" ]] || continue
-    repo=$(dirname "$g")
-    wts=$(git -C "$repo" worktree list --porcelain 2>/dev/null | awk '/^worktree /{sub(/^worktree /,""); print}' | tail -n +2)
-    echo; echo "$repo has linked worktrees (checkouts are deleted, uncommitted work is lost):"
-    while IFS= read -r w; do
-      [[ -z "$w" ]] && continue
-      dirty=""; [[ -n "$(git -C "$w" status --porcelain 2>/dev/null)" ]] && dirty=" [UNCOMMITTED CHANGES]"
-      echo "   $w$dirty"
-    done <<< "$wts"
-    confirm "Delete them and .git/worktrees?" || continue
-    ok=1
-    while IFS= read -r w; do
-      [[ -z "$w" ]] && continue
-      git -C "$repo" worktree remove --force --force "$w" </dev/null >/dev/null 2>&1 || { echo "   !! could not remove $w"; ok=0; }
-    done <<< "$wts"
-    git -C "$repo" worktree prune </dev/null >/dev/null 2>&1
-    [[ $ok == 1 ]] && rm -rf "$g/worktrees"
-  done 3< <(find "$GH" -maxdepth 3 -type d -name .git -prune 2>/dev/null)
-  sp
+if [[ $ASK == 1 ]] && (( ${#kept[@]} )); then
+  while IFS= read -r l; do
+    [[ -n "$l" ]] || continue; w=${l%% │*}
+    { common=$(wt_common "$w") && git -C "$common" worktree remove --force --force "$w" </dev/null >/dev/null 2>&1; } || echo "   !! could not remove $w"
+  done < <(pick "Stale worktrees kept for safety: tick any to delete anyway (their work is lost)" "" "${kept[@]}")
 fi
 
-# --- orphaned agent worktree dirs git no longer tracks (confirmation; skipped with -y) ---
-if [[ $YES == 0 ]]; then
+# --- linked git worktrees: per-repo checklist, clean ones preselected, uncommitted ones not ---
+if [[ $ASK == 1 && -d "$GH" ]]; then
+  while IFS= read -r -u 3 g; do
+    [[ -n "$(ls -A "$g/worktrees" 2>/dev/null)" ]] || continue
+    repo=$(dirname "$g"); labels=(); sel=""
+    while IFS= read -r w; do
+      [[ -n "$w" && -d "$w" ]] || continue
+      b=$(git -C "$w" branch --show-current 2>/dev/null)
+      l="$w │ ${b:-detached} · last commit $(git -C "$w" log -1 --format=%cs 2>/dev/null)"
+      if ! st=$(git -C "$w" status --porcelain 2>/dev/null); then l+=" · ⚠ STATUS UNKNOWN"
+      elif [[ -n "$st" ]]; then l+=" · ⚠ UNCOMMITTED CHANGES"
+      else sel+="${sel:+,}$l"; fi
+      labels+=("$l")
+    done < <(git -C "$repo" worktree list --porcelain 2>/dev/null | awk '/^worktree /{sub(/^worktree /,""); print}' | tail -n +2)
+    (( ${#labels[@]} )) || continue
+    while IFS= read -r l; do
+      [[ -n "$l" ]] || continue; w=${l%% │*}
+      git -C "$repo" worktree remove --force --force "$w" </dev/null >/dev/null 2>&1 || echo "   !! could not remove $w"
+    done < <(pick "$repo: linked worktrees to delete (space toggles, enter confirms)" "$sel" "${labels[@]}")
+    git -C "$repo" worktree prune </dev/null >/dev/null 2>&1
+  done 3< <(find "$GH" -maxdepth 3 -type d -name .git -prune 2>/dev/null)
+fi
+
+# --- orphaned agent worktree dirs git no longer tracks: checklist, all preselected ---
+if [[ $ASK == 1 ]]; then
   orphans=()
   while IFS= read -r w; do wt_common "$w" >/dev/null || orphans+=("$w"); done < <(agent_wts)
   if (( ${#orphans[@]} )); then
-    echo; echo "Claude/T3 Code/Codex worktree dirs git no longer tracks (contents are lost):"
-    printf '   %s\n' "${orphans[@]}"
-    confirm "Delete them?" && rm -rf "${orphans[@]}"
-    sp
+    while IFS= read -r w; do [[ -n "$w" ]] && rm -rf "$w"; done \
+      < <(pick "Worktree dirs git no longer tracks (contents are lost): untick any to keep" "*" "${orphans[@]}")
+  fi
+fi
+
+# --- login items (LaunchAgents) whose program no longer exists: checklist, all preselected ---
+if [[ $ASK == 1 ]]; then
+  broken=()
+  for f in "${HOME:?}/Library/LaunchAgents/"*.plist; do
+    [[ -f "$f" ]] || continue
+    prog=$(plutil -extract Program raw -o - "$f" 2>/dev/null || plutil -extract ProgramArguments.0 raw -o - "$f" 2>/dev/null)
+    [[ $prog == /* && ! -e $prog ]] && broken+=("$f │ missing $prog")
+  done
+  if (( ${#broken[@]} )); then
+    while IFS= read -r l; do
+      [[ -n "$l" ]] || continue; f=${l%% │*}
+      launchctl bootout "gui/$(id -u)" "$f" 2>/dev/null; rm -f "$f"
+    done < <(pick "Login items whose program is gone: untick any to keep" "*" "${broken[@]}")
   fi
 fi
 
@@ -298,12 +385,35 @@ if [[ -n "$active_claude" ]]; then
 fi
 sp
 
-# --- deep (opt-in): project dependencies ---
+# --- real data, opt-in only (nothing preselected): iOS device backups, deleted users' archived homes ---
+if [[ $ASK == 1 ]]; then
+  data=()
+  for b in "${HOME:?}/Library/Application Support/MobileSync/Backup/"*/; do  # needs Full Disk Access
+    [[ -d "$b" ]] || continue; b=${b%/}
+    n=$(plutil -extract "Device Name" raw -o - "$b/Info.plist" 2>/dev/null)
+    data+=("$b │ iOS backup of ${n:-unknown device}, $(stat -f %Sm -t %Y-%m-%d "$b"), $(du -sh "$b" 2>/dev/null | cut -f1)")
+  done
+  if [[ $SUDO == 1 ]]; then
+    while IFS= read -r u; do data+=("/Users/Deleted Users/$u │ archived home of a deleted user"); done \
+      < <(sudo -n ls "/Users/Deleted Users" 2>/dev/null)
+  fi
+  if (( ${#data[@]} )); then
+    while IFS= read -r l; do
+      [[ -n "$l" ]] || continue; f=${l%% │*}
+      if [[ $f == "/Users/Deleted Users/"* ]]; then sudo -n rm -rf "$f"; else rm -rf "$f"; fi
+    done < <(pick "Real data, not cache: tick only what you want deleted for good" "" "${data[@]}")
+  fi
+fi
+
+# --- deep (opt-in): project dependencies and build outputs ---
 if [[ $DEEP == 1 && -d "$GH" ]]; then
   step "node_modules across ~/github (--deep)"
   find "$GH" -type d -name node_modules -prune -exec rm -rf {} + 2>/dev/null; sp
   step "Python .venv across ~/github (--deep)"
   find "$GH" -type d -name .venv -prune -exec rm -rf {} + 2>/dev/null; sp
+  step "Rust target/ across ~/github (--deep, next to Cargo.toml)"
+  while IFS= read -r c; do rm -rf "$(dirname "$c")/target"; done \
+    < <(find "$GH" -name Cargo.toml -not -path '*/target/*' -not -path '*/node_modules/*' 2>/dev/null); sp
 fi
 
 sp; disk
