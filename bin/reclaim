@@ -8,7 +8,8 @@ Clears: npm/pnpm/yarn/bun/pub/gradle/cargo/go/CocoaPods/conda/NuGet/Hex/Cabal/
 Ivy caches, Ruby .gem archives, nvm/pyenv/rbenv/asdf downloads, ~/.cache, Flutter
 build artifacts, Dart analyzer cache, Xcode DerivedData + DeviceSupport + Archives,
 Homebrew old versions, unused Docker images/containers/build cache (keeps volumes),
-~/Library/Caches + Logs, VS Code/Cursor/Windsurf caches (when closed), Mail
+~/Library/Caches + Logs, VS Code/Cursor/Windsurf, Slack and Discord caches (when
+closed), Raycast update downloads, Zed's npm cache, Mail
 downloads, broken preference files, the Trash (incl. external drives),
 agent-reviews ledgers, OpenCode snapshots, Codex temp files, inactive Claude Code
 versions, T3 Code caches + state DB VACUUM (no data lost, when closed), and AI
@@ -139,7 +140,7 @@ XCODE_RUNNING=0; pgrep -xq Xcode && XCODE_RUNNING=1
 disk; START_FREE=$FREE
 banner=("reclaim · $(usage_line)" ""
   "Clears dev + language caches, build artifacts, unused Docker data (not volumes),"
-  "Xcode DerivedData/DeviceSupport/Archives, ~/Library/Caches & Logs, editor caches,"
+  "Xcode DerivedData/DeviceSupport/Archives, ~/Library/Caches & Logs, editor + app caches,"
   "Mail downloads, broken prefs, Trash, AI tool logs >14d, T3 Code caches + DB VACUUM."
   "Optional (admin password): system icon/symbol caches and system logs."
   "Checklists: worktrees, broken login items, opt-in iOS backups / deleted users."
@@ -248,6 +249,18 @@ for e in "Code:Visual Studio Code" "Cursor:Cursor" "Windsurf:Windsurf"; do
   if pgrep -f "${e#*:}[^/]*\.app/" >/dev/null; then note "!! ${e#*:} is running, skipped (quit it to include)"; continue; fi
   rm -rf "$d/"{Cache,CachedData,CachedExtensionVSIXs,"Code Cache",GPUCache,logs} 2>/dev/null
 done; sp
+
+# --- app caches and downloaded updates in Application Support ---
+AS="${HOME:?}/Library/Application Support"
+app_closed() { ! pgrep -f "$1[^/]*\.app/" >/dev/null || { note "!! $1 is running, skipped (quit it to include)"; return 1; }; }
+step "App caches: Slack, Discord old versions + updates, Raycast updates, Zed npm cache"
+[[ -d "$AS/Slack" ]] && app_closed Slack && rm -rf "$AS/Slack/Service Worker" "$AS/Slack/logs" 2>/dev/null
+if [[ -d "$AS/discord" ]] && app_closed Discord; then  # keep the newest app-* version
+  rm -rf "$AS/discord/download" 2>/dev/null
+  ls -d "$AS/discord/"app-* 2>/dev/null | sort -V | sed '$d' | while IFS= read -r v; do rm -rf "$v"; done
+fi
+rm -rf "$AS/com.raycast.macos/Updates/"* "$AS/Zed/node/cache" 2>/dev/null  # update downloads, npm cache
+sp
 
 # Copies Mail saved when attachments were opened; originals stay in Mail. Needs Full Disk Access.
 step "Mail downloads"
