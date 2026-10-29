@@ -107,23 +107,27 @@ job() {
 wait_group() { local i n=${#JP[@]}; for ((i = 0; i < n; i++)); do [[ ${JB[i]} == 1 ]] || wait "${JP[i]}" 2>/dev/null; done; }
 # A job also counts as finished when its wrapper is gone without a status (killed from outside).
 bg_running() { local i n=${#JP[@]}; for ((i = 0; i < n; i++)); do [[ ${JB[i]} == 1 && ! -e "$RT/$i.rc" ]] && kill -0 "${JP[i]}" 2>/dev/null && return 0; done; return 1; }
+# mark COLOR MSG: "!" in the ✓ column with the message aligned under the step labels
+# (31 = red for failures, 38;5;208 = orange for skipped/kept items).
+mark() { if [[ $UI == 1 ]]; then printf '\033[%sm! %8s  %s\033[0m\n' "$1" "" "$2"; else printf '! %s\n' "$2"; fi; }
 # reap: report finished jobs once: failures in red with their last output line, background jobs as
 # their own line, the current group as one compact timing line.
 reap() {
-  local i n=${#JP[@]} rc end dt grp="" r=$'\033[31m' g=$'\033[32m' d=$'\033[2m' z=$'\033[0m'
-  [[ $UI == 1 ]] || { r=""; g=""; d=""; z=""; }
+  local i n=${#JP[@]} rc end dt grp="" bgo="" g=$'\033[32m' d=$'\033[2m' z=$'\033[0m'
+  [[ $UI == 1 ]] || { g=""; d=""; z=""; }
   for ((i = 0; i < n; i++)); do
     [[ ${JR[i]} == 0 ]] || continue
     if [[ ! -e "$RT/$i.rc" ]]; then
       kill -0 "${JP[i]}" 2>/dev/null && continue
-      JR[i]=1; printf '%s!! %s stopped without a status%s\n' "$r" "${JN[i]}" "$z"; continue
+      JR[i]=1; mark 31 "${JN[i]} stopped without a status"; continue
     fi
     read -r rc end < "$RT/$i.rc"; dt=$(awk -v a="${JT[i]}" -v b="$end" 'BEGIN { printf "%.1f", b - a }'); JR[i]=1
-    if [[ $rc != 0 ]]; then printf '%s!! %s failed (exit %s): %s%s\n' "$r" "${JN[i]}" "$rc" "$(tail -n 1 "$RT/$i.log" | cut -c1-100)" "$z"
-    elif [[ ${JB[i]} == 1 ]]; then printf '%s✓ %8s%s  %s (background)%s %ss%s\n' "$g" done "$z" "${JN[i]}" "$d" "$dt" "$z"
+    if [[ $rc != 0 ]]; then mark 31 "${JN[i]} failed (exit $rc): $(tail -n 1 "$RT/$i.log" | cut -c1-100)"
+    elif [[ ${JB[i]} == 1 ]]; then bgo+=$(printf '%s✓ %8s%s  %s (background)%s %ss%s' "$g" done "$z" "${JN[i]}" "$d" "$dt" "$z")$'\n'
     else grp+="${grp:+ · }${JN[i]} ${dt}s"; fi
   done
-  [[ -z $grp ]] || printf '%s            %s%s\n' "$d" "$grp" "$z"
+  [[ -z $grp ]] || printf '%s            %s%s\n' "$d" "$grp" "$z"  # timing line right under its step
+  printf '%s' "$bgo"
 }
 # Spinner + live footer: one line per running background job, then the current step. A bash loop, not
 # `gum spin` (gum can miss a kill during startup and hang wait). Lines are cut to the terminal width so
@@ -154,7 +158,11 @@ spin_stop() {
   printf '\r'; (( FH > 1 )) && printf '\033[%dA' $(( FH - 1 ))
   printf '\033[J\033[?25h'  # clear the footer, show cursor
 }
-note() { spin_stop; echo "   $*"; spin_start; }
+note() {  # "!! msg" = orange warning in the ✓ column; anything else = indented info line
+  spin_stop
+  if [[ $1 == '!! '* ]]; then mark '38;5;208' "${1#!! }"; else printf '%12s%s\n' "" "$*"; fi
+  spin_start
+}
 step() {
   sp; STEP=$1; STEP_T=$SECONDS; disk; STEP_FREE=$FREE
   if [[ $UI == 1 ]]; then spin_start; else printf '[%s]\n' "$1"; fi
@@ -171,7 +179,10 @@ sp() {
   STEP=""; reap
 }
 ASK=0; [[ -t 0 ]] && ASK=1  # checklists and questions need an interactive terminal
+# Drop keys typed while steps ran, so a stray Enter can't answer the next checklist or question.
+flush_input() { perl -MPOSIX=tcflush,TCIFLUSH -e 'tcflush(0, TCIFLUSH)' </dev/tty 2>/dev/null; }
 confirm() {
+  flush_input
   if [[ $UI == 1 ]]; then gum confirm --default=false "$1" </dev/tty
   else local a; read -r -p "$1 [y/N] " a </dev/tty || a=""; [[ $a == [yY]* ]]; fi
 }
@@ -185,7 +196,7 @@ pick() {
   if [[ $sel != "*" && -n $sel ]]; then
     IFS=, read -r -a s <<< "$sel"; sel=""; for i in "${s[@]}"; do sel+="${sel:+,}$(short "$i")"; done
   fi
-  if [[ $UI == 1 ]]; then gum choose --no-limit --height 15 --header "$header" --selected "$sel" "${items[@]}" </dev/tty || true
+  if [[ $UI == 1 ]]; then flush_input; gum choose --no-limit --height 15 --header "$header" --selected "$sel" "${items[@]}" </dev/tty || true
   else { echo; echo "$header"; printf '   %s\n' "${items[@]}"; } >&2; confirm "Delete them?" && printf '%s\n' "${items[@]}"; fi |
   while IFS= read -r l; do [[ $l == "~/"* ]] && l="$HOME${l#\~}"; printf '%s\n' "$l"; done
 }
@@ -212,7 +223,8 @@ on_int() {
   for p in ${JP[@]+"${JP[@]}"} ${WP[@]+"${WP[@]}"}; do wait "$p" 2>/dev/null; done
   exit 130
 }
-trap 'spin_stop; [[ -z $SUDO_KEEP ]] || kill "$SUDO_KEEP" 2>/dev/null; rm -rf "$RT"' EXIT
+STTY=""  # saved terminal settings while keyboard echo is off
+trap 'spin_stop; [[ -z $STTY ]] || stty "$STTY" </dev/tty 2>/dev/null; [[ -z $SUDO_KEEP ]] || kill "$SUDO_KEEP" 2>/dev/null; rm -rf "$RT"' EXIT
 trap on_int INT TERM
 
 XCODE_RUNNING=0; pgrep -xq Xcode && XCODE_RUNNING=1
@@ -228,11 +240,11 @@ banner=("reclaim · $(usage_line)" ""
 [[ $DEEP == 1 ]] && banner+=("--deep: also node_modules, .venv and Rust target/ across ~/github")
 [[ $XCODE_RUNNING == 1 ]] && banner+=("" "!! Xcode is running, skipping DerivedData & DeviceSupport (quit Xcode to include).")
 # Plain styled lines, no box: printed output stays in the scrollback, and borders break when the
-# terminal re-wraps them on resize. Title bold cyan, "!!" warnings yellow, the rest dimmed.
+# terminal re-wraps them on resize. Title bold cyan, "!!" warnings as an orange "!", the rest dimmed.
 if [[ $UI == 1 ]]; then
   printf '\033[1;36m%s\033[0m\n' "${banner[0]}"
   for l in "${banner[@]:1}"; do
-    if [[ $l == '!!'* ]]; then printf '\033[33m%s\033[0m\n' "$l"; else printf '\033[2m%s\033[0m\n' "$l"; fi
+    if [[ $l == '!! '* ]]; then mark '38;5;208' "${l#!! }"; else printf '\033[2m%s\033[0m\n' "$l"; fi
   done
 else printf '%s\n' "${banner[@]}"; fi
 # One start question; -y means a plain Clean (no admin password).
@@ -246,6 +258,8 @@ if [[ $YES == 0 ]]; then
   fi
 fi
 [[ $mode == Abort ]] && { echo "Aborted."; exit 0; }
+# Keys typed during the run would echo into the progress output: hide them (gum prompts set their own mode).
+if [[ $UI == 1 && $ASK == 1 ]]; then STTY=$(stty -g </dev/tty 2>/dev/null) && stty -echo </dev/tty 2>/dev/null; fi
 START_T=$SECONDS
 disk; START_FREE=$FREE
 # Slow, independent work runs behind all other steps (live footer) and is reaped before the summary.
@@ -278,6 +292,7 @@ if [[ $ASK == 1 && ! -e "$FDA_SKIP" ]] && fda_missing; then
     *) term="your terminal app" ;;
   esac
   msg="Mail downloads and iOS backups need Full Disk Access for $term."
+  flush_input
   if [[ $UI == 1 ]]; then
     ans=$(gum choose --header "$msg" "Open System Settings" "Not now" "Don't ask again" </dev/tty) || ans="Not now"
   else
@@ -326,7 +341,7 @@ wait_group; sp
 step "~/.cache"; rm -rf "${HOME:?}/.cache/"* 2>/dev/null; sp
 
 # --- other language/toolchain download caches (installed toolchains and gems are kept) ---
-step "Language caches: Bun, Yarn Berry, Gradle wrappers, Ivy, NuGet, Hex, Cabal, Ruby .gem, version-manager downloads"
+step "Language caches (Bun, Yarn, Gradle, Ivy, NuGet, Hex, Cabal, Ruby, version managers)"
 rm -rf "${HOME:?}/.bun/install/cache" "${HOME:?}/.yarn/berry/cache" \
        "${HOME:?}/.gradle/wrapper/dists" "${HOME:?}/.ivy2/cache" "${HOME:?}/.nuget/packages" \
        "${HOME:?}/.hex/packages" "${HOME:?}/.cabal/packages" "${HOME:?}/.android/cache" \
@@ -469,7 +484,7 @@ sp
 if [[ $ASK == 1 ]] && (( ${#kept[@]} )); then
   while IFS= read -r l; do
     [[ -n "$l" ]] || continue; w=${l%% │*}
-    { common=$(wt_common "$w") && git -C "$common" worktree remove --force --force "$w" </dev/null >/dev/null 2>&1; } || echo "   !! could not remove $w"
+    { common=$(wt_common "$w") && git -C "$common" worktree remove --force --force "$w" </dev/null >/dev/null 2>&1; } || mark '38;5;208' "could not remove $w"
   done < <(pick "Stale worktrees kept for safety: tick any to delete anyway (their work is lost)" "" "${kept[@]}")
 fi
 
@@ -507,7 +522,7 @@ if [[ $ASK == 1 ]]; then
   if (( ${#labels[@]} )); then
     while IFS= read -r l; do
       [[ -n "$l" ]] || continue; w=${l%% │*}
-      { common=$(wt_common "$w") && git -C "$common" worktree remove --force --force "$w" </dev/null >/dev/null 2>&1; } || echo "   !! could not remove $w"
+      { common=$(wt_common "$w") && git -C "$common" worktree remove --force --force "$w" </dev/null >/dev/null 2>&1; } || mark '38;5;208' "could not remove $w"
     done < <(pick "Linked worktrees to delete (space toggles, enter confirms)" "$sel" "${labels[@]}")
     for g in "${wtrepos[@]}"; do git -C "${g%/.git}" worktree prune </dev/null >/dev/null 2>&1; done
   fi
