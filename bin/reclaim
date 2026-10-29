@@ -24,10 +24,11 @@ and iOS backups ("Don't ask again" is stored in ~/.local/state/reclaim).
 
 Checklists (interactive terminal only): linked git worktrees (uncommitted ones
 unticked), stale worktrees kept for safety, orphaned worktree dirs, login items
-whose program is gone, and opt-in real data (iOS backups, Xcode archives,
-deleted users' homes).
+whose program is gone, opt-in simulators/emulators (runtimes, devices, Android
+AVDs and system images; nothing ticked), and opt-in real data (iOS backups,
+Xcode archives, deleted users' homes).
 
-Never touches: source code, browser profiles, SDK-matched simulator runtimes,
+Never touches: source code, browser profiles, simulators unless ticked,
 installed CLI binaries (~/.cargo/bin, ~/.pub-cache/bin), or JetBrains/Android
 Studio Local History.
 
@@ -37,12 +38,14 @@ on first run; falls back to plain text when gum is unavailable or output is pipe
 Usage:
   reclaim            confirm, then clean
   reclaim -y         skip the start question, plain Clean (checklists still appear)
-  reclaim --deep     ALSO remove node_modules, Python .venv and Rust target/ across ~/github
+  reclaim --deep     ALSO remove node_modules, Python .venv and Rust target/ in your git folder
+
+Asks for your git folder (where your repos live) each run; the last answer is the
+default (saved in ~/.config/reclaim/git-folder). -y uses the saved folder.
                      (regenerable, but forces reinstall in ALL projects)
 EOF
 }
 
-GH="${HOME:?}/github"
 YES=0; DEEP=0
 for a in "$@"; do
   case "$a" in
@@ -186,6 +189,26 @@ confirm() {
   if [[ $UI == 1 ]]; then gum confirm --default=false "$1" </dev/tty
   else local a; read -r -p "$1 [y/N] " a </dev/tty || a=""; [[ $a == [yY]* ]]; fi
 }
+# rpath FILE: FILE's absolute path with symlinks resolved (realpath, or a readlink loop where it is missing).
+rpath() {
+  if have realpath; then realpath "$1" 2>/dev/null; return; fi
+  local p=$1 l d n=0
+  while :; do
+    [[ $p == */* ]] || p=./$p
+    d=$(cd "${p%/*}/" 2>/dev/null && pwd -P) || return 1
+    p=${d%/}/${p##*/}
+    [[ -L $p ]] && ((n++ < 40)) || break
+    l=$(readlink "$p") || return 1
+    case $l in /*) p=$l ;; *) p=${p%/*}/$l ;; esac
+  done
+  printf '%s\n' "$p"
+}
+# toolroot CMD LEVELS: the path LEVELS levels above CMD's real location on PATH (symlinks resolved).
+toolroot() {
+  local p i; p=$(command -v "$1" 2>/dev/null) && p=$(rpath "$p") || return 1
+  for ((i = 0; i < $2; i++)); do p=${p%/*}; done
+  [[ -e "$p" ]] && printf '%s\n' "$p"
+}
 short() { case $1 in "$HOME"/*) printf '%s\n' "~${1#"$HOME"}" ;; *) printf '%s\n' "$1" ;; esac; }
 # pick HEADER SELECTED ITEM...: prints the chosen items, one per line. Items are "path │ details",
 # shown with ~ for $HOME. UI: gum multi-select, SELECTED is a comma list of items or "*";
@@ -235,9 +258,9 @@ banner=("reclaim · $(usage_line)" ""
   "Xcode DerivedData/DeviceSupport, ~/Library/Caches & Logs, editor + app caches,"
   "Mail downloads, broken prefs, Trash, AI tool logs >14d, T3 Code caches + DB VACUUM."
   "Optional (admin password): system icon/symbol caches and system logs."
-  "Checklists: worktrees, broken login items, opt-in iOS backups / Xcode archives / deleted users."
-  "Keeps source, browsers, simulator runtimes, installed CLIs/toolchains, IDE history.")
-[[ $DEEP == 1 ]] && banner+=("--deep: also node_modules, .venv and Rust target/ across ~/github")
+  "Checklists: worktrees, login items, opt-in simulators/emulators, iOS backups, Xcode archives, deleted users."
+  "Keeps source, browsers, installed CLIs/toolchains, IDE history.")
+[[ $DEEP == 1 ]] && banner+=("--deep: also node_modules, .venv and Rust target/ in your git folder")
 [[ $XCODE_RUNNING == 1 ]] && banner+=("" "!! Xcode is running, skipping DerivedData & DeviceSupport (quit Xcode to include).")
 # Plain styled lines, no box: printed output stays in the scrollback, and borders break when the
 # terminal re-wraps them on resize. Title bold cyan, "!!" warnings as an orange "!", the rest dimmed.
@@ -258,6 +281,29 @@ if [[ $YES == 0 ]]; then
   fi
 fi
 [[ $mode == Abort ]] && { echo "Aborted."; exit 0; }
+
+# --- git folder (where the repos live): asked each run; the last answer is the default, -y reuses it ---
+GHCONF="${XDG_CONFIG_HOME:-${HOME:?}/.config}/reclaim/git-folder"
+GH=$(cat "$GHCONF" 2>/dev/null)
+if [[ -z $GH ]]; then
+  for d in "$HOME/github" "$HOME/Developer"; do [[ -d "$d" ]] && { GH=$d; break; }; done
+  GH=${GH:-$HOME}
+fi
+if [[ $YES == 0 ]]; then
+  while :; do
+    flush_input
+    if [[ $UI == 1 ]]; then
+      a=$(gum input --header "Git folder (where your repos live)" --value "$(short "$GH")" </dev/tty) || { echo "Aborted."; exit 0; }
+    else
+      read -r -p "Git folder [$(short "$GH")]: " a </dev/tty || a=""; a=${a:-$(short "$GH")}
+    fi
+    [[ $a == "~"* ]] && a="$HOME${a#\~}"
+    [[ $a == / ]] || a=${a%/}
+    [[ -d "$a" ]] && { GH=$(cd "$a" && pwd); break; }
+    mark '38;5;208' "not a folder: $a"
+  done
+  mkdir -p "${GHCONF%/*}" && printf '%s\n' "$GH" > "$GHCONF"
+fi
 # Keys typed during the run would echo into the progress output: hide them (gum prompts set their own mode).
 if [[ $UI == 1 && $ASK == 1 ]]; then STTY=$(stty -g </dev/tty 2>/dev/null) && stty -echo </dev/tty 2>/dev/null; fi
 START_T=$SECONDS
@@ -350,7 +396,7 @@ rm -rf "${HOME:?}/.bun/install/cache" "${HOME:?}/.yarn/berry/cache" \
        "${HOME:?}/.local/share/mise/installs/ruby/"*/lib/ruby/gems/*/cache 2>/dev/null; sp
 
 # --- Dart / Flutter ---
-step "Flutter build/.dart_tool in ~/github (pubspec-guarded)"
+step "Flutter build/.dart_tool in $(short "$GH") (pubspec-guarded)"
 if [[ -d "$GH" ]]; then
   while IFS= read -r -d '' p; do
     d=${p%/*}; [[ -e "$d/build" || -e "$d/.dart_tool" ]] && rm -rf "$d/build" "$d/.dart_tool" 2>/dev/null
@@ -426,15 +472,21 @@ done; sp
 # --- Trash (opted in — irreversible), incl. this user's trash on external drives ---
 step "Trash"; find "${HOME:?}/.Trash" /Volumes/*/.Trashes/"$(id -u)" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; sp
 
-# Git dirs of repos in ~/github (1-2 levels deep, incl. dot-dirs) and ~/flutter: globs, not a full-tree find.
+# Git dirs of repos: those in the git folder (1-2 levels deep, incl. dot-dirs), the main repos of worktrees
+# found there (wherever they live), and the Flutter SDK checkout found via `flutter` on PATH. Globs, not a find.
 repos=()
+addrepo() { local r; [[ -d "$1" ]] || return 0; for r in ${repos[@]+"${repos[@]}"}; do [[ $r == "$1" ]] && return 0; done; repos+=("$1"); }
 shopt -s dotglob
-for g in "$GH"/*/.git "$GH"/*/*/.git "${HOME:?}/flutter/.git"; do [[ -d "$g" ]] && repos+=("$g"); done
+for g in "$GH"/*/.git "$GH"/*/*/.git; do
+  if [[ -d "$g" ]]; then addrepo "$g"
+  elif [[ -f "$g" ]]; then addrepo "$(git -C "${g%/.git}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; fi
+done
 shopt -u dotglob
+fl=$(toolroot flutter 2) && addrepo "$fl/.git"
 
 # --- agent review ledgers (local-only, regenerable) ---
-# ~/flutter holds the snapshots of its worktrees that live in ~/github.
-step "agent-reviews in ~/github repos and ~/flutter (.git/agent-reviews + per-worktree)"
+# Main repos outside the git folder (e.g. the Flutter SDK) hold the snapshots of their worktrees inside it.
+step "agent-reviews in your repos (.git/agent-reviews + per-worktree)"
 for g in ${repos[@]+"${repos[@]}"}; do
   for a in "$g/agent-reviews" "$g/worktrees/"*/agent-reviews; do [[ -e "$a" ]] && rm -rf "$a" 2>/dev/null; done
 done; sp
@@ -583,9 +635,9 @@ fi; sp
 # --- AI tool scratch data (undo snapshots, temp files, old binaries) ---
 step "OpenCode snapshots, Codex temp files, inactive Claude Code versions"
 rm -rf "${HOME:?}/.local/share/opencode/snapshot" "${HOME:?}/.codex/.tmp/"* 2>/dev/null
-active_claude=$(readlink "${HOME:?}/.local/bin/claude" 2>/dev/null)
-if [[ -n "$active_claude" ]]; then
-  for v in "${HOME:?}/.local/share/claude/versions/"*; do
+active_claude=$(toolroot claude 0)  # e.g. ~/.local/share/claude/versions/<v>, via the `claude` on PATH
+if [[ -n "$active_claude" && ${active_claude%/*} == */versions ]]; then
+  for v in "${active_claude%/*}/"*; do
     [[ -e "$v" && "$v" != "$active_claude" ]] && rm -rf "$v" 2>/dev/null
   done
 fi
@@ -617,9 +669,59 @@ if [[ $ASK == 1 ]]; then
   fi
 fi
 
+# --- simulators & emulators: re-downloadable but large; opt-in checklist, nothing preselected ---
+if [[ $ASK == 1 ]]; then
+  emu=(); STEP="Looking for simulators and emulators"; spin_start
+  if have xcrun && xcrun --find simctl >/dev/null 2>&1; then
+    # JSON parsed with JavaScript for Automation (always present; /usr/bin/python3 may prompt to install tools).
+    xcrun simctl runtime list -j > "$RT/runtimes.json" 2>/dev/null
+    while IFS=$'\t' read -r id label; do [[ -n $id ]] && emu+=("simctl runtime $id │ $label"); done < <(osascript -l JavaScript -e '
+      function run(a) {
+        var d = JSON.parse($.NSString.stringWithContentsOfFileEncodingError(a[0], 4, null).js || "{}");
+        return Object.keys(d).filter(function (k) { return d[k].deletable !== false; }).map(function (k) {
+          var r = d[k], os = (r.runtimeIdentifier || "").split(".").pop().split("-")[0];
+          return k + "\t" + os + " " + (r.version || "") + " (" + (r.build || "") + ") simulator runtime, " +
+            ((r.sizeBytes || 0) / 1e9).toFixed(1) + " GB";
+        }).join("\n");
+      }' "$RT/runtimes.json" 2>/dev/null)
+    dev="${HOME:?}/Library/Developer/CoreSimulator/Devices"
+    if [[ -n "$(ls "$dev" 2>/dev/null | grep -v '^device_set.plist$')" ]]; then
+      emu+=("simctl devices │ all simulator devices and their app data, $(du -sh "$dev" 2>/dev/null | awk '{ print $1 }')")
+    fi
+  fi
+  # Android SDK: $ANDROID_HOME / $ANDROID_SDK_ROOT, else found via adb, emulator or sdkmanager on PATH.
+  sdk=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}
+  [[ -n $sdk ]] || sdk=$(toolroot adb 2) || sdk=$(toolroot emulator 2) || sdk=$(toolroot sdkmanager 4) ||
+    sdk="${HOME:?}/Library/Android/sdk"
+  for p in "${ANDROID_AVD_HOME:-${HOME:?}/.android/avd}"/*.avd; do
+    [[ -d "$p" ]] && emu+=("$p │ Android emulator, $(du -sh "$p" 2>/dev/null | awk '{ print $1 }')")
+  done
+  for p in "$sdk"/system-images/*/*/*; do
+    [[ -d "$p" ]] && emu+=("$p │ Android system image, $(du -sh "$p" 2>/dev/null | awk '{ print $1 }')")
+  done
+  spin_stop; STEP=""
+  if (( ${#emu[@]} )); then
+    picked=()
+    while IFS= read -r l; do [[ -n "$l" ]] && picked+=("$l"); done \
+      < <(pick "Simulators & emulators (re-downloadable but large): tick any to delete" "" "${emu[@]}")
+    if (( ${#picked[@]} )); then
+      step "Deleting the ticked simulators & emulators"
+      for l in "${picked[@]}"; do
+        f=${l%% │*}
+        case $f in
+          "simctl runtime "*) run xcrun simctl runtime delete "${f#simctl runtime }" ;;
+          "simctl devices") run xcrun simctl delete all ;;
+          *.avd) rm -rf "$f" "${f%.avd}.ini" 2>/dev/null ;;
+          *) rm -rf "$f" 2>/dev/null ;;
+        esac
+      done; sp
+    fi
+  fi
+fi
+
 # --- deep (opt-in): project dependencies and build outputs ---
 if [[ $DEEP == 1 && -d "$GH" ]]; then
-  step "--deep: node_modules, Python .venv, Rust target/ (next to Cargo.toml) across ~/github"
+  step "--deep: node_modules, Python .venv, Rust target/ (next to Cargo.toml) in $(short "$GH")"
   while IFS= read -r p; do  # one pass; pruned dirs are not descended into
     case $p in
       */Cargo.toml) rm -rf "${p%/Cargo.toml}/target" 2>/dev/null ;;
