@@ -42,7 +42,7 @@ done
 sp()   { /usr/sbin/diskutil info / 2>/dev/null | awk -F'[()]' '
   /Container Total Space/ { t = $2 + 0 }
   /Container Free Space/  { f = $2 + 0; h = $1; sub(/.*: +/, "", h); sub(/ +$/, "", h) }
-  END { if (t) printf "   -> %s free (%d%% used)\n", h, int((t - f) * 100 / t + 0.5) }'; }
+  END { if (t) { p = int(f * 100 / t + 0.5); printf "   -> %s free (%d%%), %d%% used\n", h, p, 100 - p } }'; }
 have() { command -v "$1" >/dev/null 2>&1; }
 step() { printf '[%s]\n' "$1"; }
 # Run external tools with NO stdin, so nothing (e.g. Corepack's pnpm/yarn download
