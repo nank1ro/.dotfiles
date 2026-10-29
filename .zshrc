@@ -229,3 +229,6 @@ fi
 
 # shallow single-branch clone: gshallow <url> [branch=main]
 gshallow() { git clone --branch "${2:-main}" --depth 1 --single-branch "$1"; }
+
+# opencode
+export PATH=/Users/ale/.opencode/bin:$PATH
