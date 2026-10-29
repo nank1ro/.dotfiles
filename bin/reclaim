@@ -618,7 +618,8 @@ fi
 
 bg_running && { step "Finishing background jobs"; while bg_running; do sleep 0.2; done; }
 sp; reap; disk
-done_msg="Freed $(gb $((FREE - START_FREE))) in $((SECONDS - START_T))s · now $(usage_line)"
+pct=$(awk -v f=$((FREE - START_FREE)) -v t="${TOTAL:-0}" 'BEGIN { printf "%.1f", (t > 0 && f > 0) ? f * 100 / t : 0 }')
+done_msg="Freed $(gb $((FREE - START_FREE))) (${pct}% of the disk) in $((SECONDS - START_T))s · now $(usage_line)"
 echo
 if [[ $UI == 1 ]]; then printf '\033[1;32m✔ %s\033[0m\n' "$done_msg"
 else echo "DONE: $done_msg"; fi
