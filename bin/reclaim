@@ -6,7 +6,7 @@ reclaim — free disk by clearing regenerable dev caches & build artifacts.
 
 Clears: npm/pnpm/yarn/pub/gradle/cargo/go/CocoaPods caches, ~/.cache,
 Flutter build artifacts, Dart analyzer cache, Xcode DerivedData + DeviceSupport,
-Homebrew old versions, ALL unused Docker images, ~/Library/Caches, ~/Library/Logs,
+Homebrew old versions, unused Docker images/containers/build cache (keeps volumes), ~/Library/Caches, ~/Library/Logs,
 Xcode Archives, the Trash, agent-reviews ledgers in ~/github repos and ~/flutter,
 OpenCode undo snapshots, Codex temp files, inactive Claude Code versions, and
 T3 Code Electron caches; VACUUMs the T3 Code state DB (no data lost) when closed.
@@ -47,17 +47,16 @@ have() { command -v "$1" >/dev/null 2>&1; }
 export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 run() { "$@" </dev/null >/dev/null 2>&1; }
 
+gb() { awk -v b="$1" 'BEGIN { printf "%.1f GB", (b > 0 ? b : 0) / 1e9 }'; }
 # Whole APFS container (Data + system volumes), matching Finder/Stats rather than df's Data-only %.
+# diskutil (slow) only for the fixed container size; df's avail on Data is the container's free space.
+TOTAL=$(/usr/sbin/diskutil info / 2>/dev/null | awk -F'[()]' '/Container Total Space/ { printf "%.0f", $2 }')
 # Sets FREE (bytes), FREE_H (e.g. "86.6 GB") and FREE_PCT.
 disk() {
-  local t
-  read -r t FREE FREE_H < <(/usr/sbin/diskutil info / 2>/dev/null | awk -F'[()]' '
-    /Container Total Space/ { t = $2 + 0 }
-    /Container Free Space/  { f = $2 + 0; h = $1; sub(/.*: +/, "", h); sub(/ +$/, "", h) }
-    END { printf "%.0f %.0f %s\n", t, f, h }')
-  FREE_PCT=$(( t ? (FREE * 100 + t / 2) / t : 0 ))
+  FREE=$(( $(df -k /System/Volumes/Data | awk 'NR == 2 { print $4 }') * 1024 ))
+  FREE_H=$(gb "$FREE"); FREE_PCT=$(( ${TOTAL:-0} ? (FREE * 100 + TOTAL / 2) / TOTAL : 0 ))
 }
-gb() { awk -v b="$1" 'BEGIN { printf "%.1f GB", (b > 0 ? b : 0) / 1e9 }'; }
+usage_line() { echo "$FREE_H free ($FREE_PCT% free, $((100 - FREE_PCT))% used)"; }
 
 # Live progress via gum (charm.land): install it on first run, else fall back to plain text.
 # Without brew, fetch the checksum-verified release binary into ~/.local/bin (stock macOS tools only).
@@ -80,23 +79,33 @@ fi
 UI=0; [[ -t 1 ]] && have gum && UI=1
 
 # step NAME starts a step (spinner in UI mode); sp ends it and reports the space it freed.
-STEP=""; SPIN=""
-spin_start() { [[ $UI == 1 ]] || return 0; gum spin --spinner minidot --title "$STEP" -- sleep 86400 </dev/null & SPIN=$!; }
+STEP=""; SPIN=""; pids=()
+# Spinner is a bash loop, not `gum spin`: gum can miss a kill that lands during its startup and hang wait.
+spin_start() {
+  [[ $UI == 1 ]] || return 0
+  printf '\033[?25l'
+  { while :; do for f in ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏; do printf '\r\033[36m%s\033[0m %s\033[K' "$f" "$STEP"; sleep 0.1; done; done; } &
+  SPIN=$!
+}
 spin_stop() {
   [[ -n $SPIN ]] || return 0
-  kill "$SPIN" 2>/dev/null; wait "$SPIN" 2>/dev/null; SPIN=""
-  printf '\r\033[K\033[?25h'  # clear spinner line, restore cursor gum hid
+  kill -KILL "$SPIN" 2>/dev/null; wait "$SPIN" 2>/dev/null; SPIN=""
+  printf '\r\033[K\033[?25h'  # clear spinner line, show cursor
 }
 note() { spin_stop; echo "   $*"; spin_start; }
 step() {
-  sp; STEP=$1; disk; STEP_FREE=$FREE
+  sp; STEP=$1; STEP_T=$SECONDS; disk; STEP_FREE=$FREE
   if [[ $UI == 1 ]]; then spin_start; else printf '[%s]\n' "$1"; fi
 }
+# UI: green line when the step freed >= 0.05 GB, dimmed otherwise; duration shown when >= 1s.
 sp() {
   [[ -n $STEP ]] || return 0
   spin_stop; disk
-  if [[ $UI == 1 ]]; then printf '\033[32m✓\033[0m %8s  %s\n' "$(gb $((FREE - STEP_FREE)))" "$STEP"
-  else printf '   -> freed %s, %s free (%d%%)\n' "$(gb $((FREE - STEP_FREE)))" "$FREE_H" "$FREE_PCT"; fi
+  local freed=$((FREE - STEP_FREE)) dt=$((SECONDS - STEP_T)) tm=""
+  (( dt >= 1 )) && tm=" ${dt}s"
+  if [[ $UI == 0 ]]; then printf '   -> freed %s%s, %s\n' "$(gb $freed)" "$tm" "$(usage_line)"
+  elif (( freed >= 50000000 )); then printf '\033[32m✓ %8s\033[0m  %s\033[2m%s\033[0m\n' "$(gb $freed)" "$STEP" "$tm"
+  else printf '\033[2m· %8s  %s%s\033[0m\n' "$(gb $freed)" "$STEP" "$tm"; fi
   STEP=""
 }
 confirm() {
@@ -104,31 +113,42 @@ confirm() {
   else local a; read -r -p "$1 [y/N] " a || a=""; [[ $a == [yY]* ]]; fi
 }
 trap 'spin_stop' EXIT
-trap 'spin_stop; echo; echo "Interrupted."; exit 130' INT TERM
+trap 'spin_stop; echo; echo "Interrupted."; kill -TERM ${pids[@]+"${pids[@]}"} 2>/dev/null; wait ${pids[@]+"${pids[@]}"} 2>/dev/null; exit 130' INT TERM
 
 XCODE_RUNNING=0; pgrep -xq Xcode && XCODE_RUNNING=1
 
-echo "reclaim: clears dev caches, build artifacts, Docker images, Xcode DerivedData,"
-echo "         DeviceSupport, ~/Library/Caches & Logs, Xcode Archives, and Trash."
-echo "         Also: .git/agent-reviews; asks per repo before deleting linked + orphaned worktrees;"
-echo "         AI tool transcripts/logs older than 14 days; Dart analyzer cache; OpenCode snapshots;"
-echo "         Codex temp files; inactive Claude Code versions; T3 Code caches + state DB VACUUM."
-echo "         Keeps source, browsers, simulator runtimes, installed CLIs, IDE history."
-[[ $DEEP == 1 ]] && echo "         --deep: also node_modules + .venv across ~/github"
-echo
-if [[ $XCODE_RUNNING == 1 ]]; then
-  echo "!! Xcode is running — skipping DerivedData & DeviceSupport (quit Xcode to include)."; echo
-fi
+disk; START_FREE=$FREE
+banner=("reclaim · $(usage_line)" ""
+  "Clears dev caches, build artifacts, unused Docker data (not volumes), Xcode DerivedData,"
+  "DeviceSupport, ~/Library/Caches & Logs, Xcode Archives, and Trash."
+  "Also: .git/agent-reviews; asks per repo before deleting linked + orphaned worktrees;"
+  "AI tool transcripts/logs older than 14 days; Dart analyzer cache; OpenCode snapshots;"
+  "Codex temp files; inactive Claude Code versions; T3 Code caches + state DB VACUUM."
+  "Keeps source, browsers, simulator runtimes, installed CLIs, IDE history.")
+[[ $DEEP == 1 ]] && banner+=("--deep: also node_modules + .venv across ~/github")
+[[ $XCODE_RUNNING == 1 ]] && banner+=("" "!! Xcode is running, skipping DerivedData & DeviceSupport (quit Xcode to include).")
+if [[ $UI == 1 ]]; then gum style --border rounded --border-foreground 8 --padding "0 1" "${banner[@]}"
+else printf '%s\n' "${banner[@]}"; fi
 if [[ $YES == 0 ]]; then
   confirm "Proceed?" || { echo "Aborted."; exit 0; }
 fi
+START_T=$SECONDS
 disk; START_FREE=$FREE
-echo; echo "START: $FREE_H free ($FREE_PCT% free, $((100 - FREE_PCT))% used)"; echo
+echo
 
-# --- JavaScript / TypeScript ---
-have npm  && { step "npm cache";        run npm cache clean --force; sp; }
-have pnpm && { step "pnpm store prune";  run pnpm store prune;       sp; }
-have yarn && { step "yarn cache clean";  run yarn cache clean;       sp; }
+# --- package managers: independent and slow to start (brew ~8s, pnpm ~4s), so run concurrently ---
+par() { "$@" </dev/null >/dev/null 2>&1 & pids+=($!); }
+step "Package caches: npm, pnpm, yarn, CocoaPods, Go, Homebrew, Docker"
+have npm    && par npm cache clean --force
+have pnpm   && par pnpm store prune
+have yarn   && par yarn cache clean
+have pod    && par pod cache clean --all
+have go     && par go clean -cache -modcache
+have brew   && par brew cleanup --prune=all
+have docker && par docker system prune -a -f  # stopped containers, unused networks, ALL unused images, build cache; keeps volumes
+(( ${#pids[@]} )) && wait "${pids[@]}"
+pids=()
+sp
 
 # --- generic user cache (whole ~/.cache; may include ML/tool caches, all regenerable) ---
 step "~/.cache"; rm -rf "${HOME:?}/.cache/"* 2>/dev/null; sp
@@ -145,8 +165,7 @@ rm -rf "${HOME:?}/.pub-cache/hosted" "${HOME:?}/.pub-cache/git" 2>/dev/null; sp
 step "Dart analyzer cache (~/.dartServer)"
 rm -rf "${HOME:?}/.dartServer/.analysis-driver" "${HOME:?}/.dartServer/.plugin_manager" 2>/dev/null; sp
 
-# --- iOS / macOS (CocoaPods + Xcode) ---
-have pod && { step "CocoaPods cache"; run pod cache clean --all; sp; }
+# --- iOS / macOS (Xcode) ---
 if [[ $XCODE_RUNNING == 0 ]]; then
   step "Xcode DerivedData"; rm -rf "${HOME:?}/Library/Developer/Xcode/DerivedData/"* 2>/dev/null; sp
   step "iOS/watchOS DeviceSupport + CoreSimulator caches (regenerate on device connect)"
@@ -158,20 +177,13 @@ fi
 # Xcode Archives (opted in — these include release-build dSYMs for crash symbolication)
 step "Xcode Archives"; rm -rf "${HOME:?}/Library/Developer/Xcode/Archives/"* 2>/dev/null; sp
 
-# --- Go / Rust ---
-have go    && { step "Go build+module cache"; run go clean -cache -modcache; sp; }
+# --- Rust ---
 have cargo && { step "Cargo registry/git cache (keeps ~/.cargo/bin & config)"
   rm -rf "${HOME:?}/.cargo/registry/cache" "${HOME:?}/.cargo/registry/src" \
          "${HOME:?}/.cargo/git/checkouts" "${HOME:?}/.cargo/git/db" 2>/dev/null; sp; }
 
 # --- Android / Gradle ---
 step "gradle caches"; rm -rf "${HOME:?}/.gradle/caches" 2>/dev/null; sp
-
-# --- Homebrew ---
-have brew && { step "brew cleanup"; run brew cleanup --prune=all; sp; }
-
-# --- Docker / OrbStack (removes ALL unused images, not just dangling) ---
-have docker && { step "docker image prune -a"; run docker image prune -a -f; sp; }
 
 # --- system caches & logs ---
 # Wipe ~/Library/Caches, but skip JetBrains/Android Studio dirs so their
@@ -295,4 +307,7 @@ if [[ $DEEP == 1 && -d "$GH" ]]; then
 fi
 
 sp; disk
-echo; echo "DONE: $FREE_H free ($FREE_PCT% free, $((100 - FREE_PCT))% used), freed $(gb $((FREE - START_FREE)))"
+done_msg="Freed $(gb $((FREE - START_FREE))) in $((SECONDS - START_T))s · now $(usage_line)"
+echo
+if [[ $UI == 1 ]]; then gum style --border rounded --border-foreground 2 --padding "0 1" --bold "$done_msg"
+else echo "DONE: $done_msg"; fi
