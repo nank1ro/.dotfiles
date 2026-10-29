@@ -434,11 +434,27 @@ wt_common() {
 }
 
 # --- stale agent worktrees (untouched 14+ days, clean, HEAD on a branch; runs with -y too) ---
+# Worktrees that open (non-archived) T3 Code threads point to, as "path<TAB>thread title" lines:
+# they are never removed automatically and never preselected, however idle or clean they are.
+# If the database exists but cannot be read, every worktree is treated as in use.
+t3db="${HOME:?}/.t3/userdata/statev2.sqlite" t3bad=0
+t3wt=$(sqlite3 "file:$t3db?mode=ro" "SELECT json_extract(payload_json, '\$.worktreePath') || char(9) || COALESCE(NULLIF(json_extract(payload_json, '\$.title'), ''), 'untitled') FROM orchestration_v2_projection_threads WHERE thread_id NOT LIKE 'thread:provider%' AND deleted_at IS NULL AND archived_at IS NULL AND json_extract(payload_json, '\$.worktreePath') IS NOT NULL" 2>/dev/null) || { [[ -e $t3db ]] && t3bad=1; }
+t3thread() {
+  if ((t3bad)); then echo 'unknown (T3 Code database unreadable)'; return; fi
+  printf '%s\n' "$t3wt" | awk -F'\t' -v w="$1" '$1 == w { print $2; exit }'
+}
+
+recent() {  # yes: file changed in 14d; no: scan clean, none; unknown: scan failed with nothing found
+  local o; o=$(find "$1" -mtime -14 -print -quit 2>/dev/null); local rc=$?
+  if [[ -n $o ]]; then echo yes; elif ((rc)); then echo unknown; else echo no; fi
+}
+
 step "Claude/T3 Code/Codex worktrees untouched >14d (clean, commits on a branch)"
 kept=()
 while IFS= read -r -u 3 w; do
   common=$(wt_common "$w") || continue
-  [[ -z "$(find "$w" -mtime -14 -print -quit 2>/dev/null)" ]] || continue
+  [[ -z "$(t3thread "$w")" ]] || continue  # an open T3 Code thread still uses it
+  [[ $(recent "$w") == no ]] || continue
   st=$(git -C "$w" status --porcelain 2>/dev/null) || { note "!! kept (git status failed): $w"; kept+=("$w │ git status failed"); continue; }
   [[ -z "$st" ]] || { note "!! kept (uncommitted changes): $w"; kept+=("$w │ uncommitted changes"); continue; }
   [[ -n "$(git -C "$w" for-each-ref --count=1 --contains HEAD refs/heads refs/remotes 2>/dev/null)" ]] || { note "!! kept (commits on no branch): $w"; kept+=("$w │ commits on no branch"); continue; }
@@ -452,7 +468,8 @@ if [[ $ASK == 1 ]] && (( ${#kept[@]} )); then
   done < <(pick "Stale worktrees kept for safety: tick any to delete anyway (their work is lost)" "" "${kept[@]}")
 fi
 
-# --- linked git worktrees of all repos: one checklist; only clean ones with commits on a branch preselected ---
+# --- linked git worktrees of all repos: one checklist; preselected only if clean, commits on a branch,
+# untouched for 14+ days and not used by an open T3 Code thread ---
 if [[ $ASK == 1 ]]; then
   labels=(); sel=""; wtrepos=(); n=0
   for g in ${repos[@]+"${repos[@]}"}; do
@@ -467,6 +484,11 @@ if [[ $ASK == 1 ]]; then
         elif [[ -n "$st" ]]; then l+=" · ⚠ UNCOMMITTED CHANGES"
         elif [[ -z "$(git -C "$w" for-each-ref --count=1 --contains HEAD refs/heads refs/remotes 2>/dev/null)" ]]; then l+=" · ⚠ COMMITS ON NO BRANCH"
         else ok=1; fi
+        case $(recent "$w") in
+          yes) l+=" · used in the last 14 days"; ok=0 ;;
+          unknown) l+=" · recency unknown"; ok=0 ;;
+        esac
+        t=$(t3thread "$w"); [[ -z $t ]] || { l+=" · T3 Code thread: $t"; ok=0; }
         printf '%s\n%s\n' "$ok" "$l" > "$RT/wt.$n"
       } &
       WP+=($!); n=$((n + 1))
