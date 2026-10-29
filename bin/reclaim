@@ -90,21 +90,69 @@ fi
 UI=0; [[ -t 1 ]] && have gum && UI=1
 
 # step NAME starts a step (spinner in UI mode); sp ends it and reports the space it freed.
-STEP=""; SPIN=""; pids=(); SUDO_KEEP=""
-# Spinner is a bash loop, not `gum spin`: gum can miss a kill that lands during its startup and hang wait.
+STEP=""; SPIN=""; FH=1; SUDO_KEEP=""; RT=$(mktemp -d "${TMPDIR:-/tmp}/reclaim.XXXXXX")
+# Tracked jobs: name, pid, start second, background flag, reported flag. Each writes "exit end-second"
+# to $RT/<i>.rc when done and its output to $RT/<i>.log.
+JN=(); JP=(); JT=(); JB=(); JR=(); WP=()  # WP: worktree-status subshells
+now() { perl -MTime::HiRes=time -e 'printf "%.1f", time'; }  # bash 3.2 has no sub-second clock
+T0=$(( $(date +%s) - SECONDS ))  # epoch at SECONDS=0, so the footer can show elapsed time without spawning
+# job BG NAME CMD...: BG=1 keeps running behind later steps (live footer, reaped before the summary);
+# BG=0 joins the current step's parallel group (wait_group).
+job() {
+  local bg=$1 name=$2 i=${#JP[@]}; shift 2
+  JT+=("$(now)")
+  { "$@" </dev/null >"$RT/$i.log" 2>&1; echo "$? $(now)" > "$RT/$i.tmp" && mv "$RT/$i.tmp" "$RT/$i.rc"; } 2>/dev/null &
+  JN+=("$name"); JP+=($!); JB+=("$bg"); JR+=(0)
+}
+wait_group() { local i n=${#JP[@]}; for ((i = 0; i < n; i++)); do [[ ${JB[i]} == 1 ]] || wait "${JP[i]}" 2>/dev/null; done; }
+# A job also counts as finished when its wrapper is gone without a status (killed from outside).
+bg_running() { local i n=${#JP[@]}; for ((i = 0; i < n; i++)); do [[ ${JB[i]} == 1 && ! -e "$RT/$i.rc" ]] && kill -0 "${JP[i]}" 2>/dev/null && return 0; done; return 1; }
+# reap: report finished jobs once: failures in red with their last output line, background jobs as
+# their own line, the current group as one compact timing line.
+reap() {
+  local i n=${#JP[@]} rc end dt grp="" r=$'\033[31m' g=$'\033[32m' d=$'\033[2m' z=$'\033[0m'
+  [[ $UI == 1 ]] || { r=""; g=""; d=""; z=""; }
+  for ((i = 0; i < n; i++)); do
+    [[ ${JR[i]} == 0 ]] || continue
+    if [[ ! -e "$RT/$i.rc" ]]; then
+      kill -0 "${JP[i]}" 2>/dev/null && continue
+      JR[i]=1; printf '%s!! %s stopped without a status%s\n' "$r" "${JN[i]}" "$z"; continue
+    fi
+    read -r rc end < "$RT/$i.rc"; dt=$(awk -v a="${JT[i]}" -v b="$end" 'BEGIN { printf "%.1f", b - a }'); JR[i]=1
+    if [[ $rc != 0 ]]; then printf '%s!! %s failed (exit %s): %s%s\n' "$r" "${JN[i]}" "$rc" "$(tail -n 1 "$RT/$i.log" | cut -c1-100)" "$z"
+    elif [[ ${JB[i]} == 1 ]]; then printf '%s✓ %8s%s  %s (background)%s %ss%s\n' "$g" done "$z" "${JN[i]}" "$d" "$dt" "$z"
+    else grp+="${grp:+ · }${JN[i]} ${dt}s"; fi
+  done
+  [[ -z $grp ]] || printf '%s            %s%s\n' "$d" "$grp" "$z"
+}
+# Spinner + live footer: one line per running background job, then the current step. A bash loop, not
+# `gum spin` (gum can miss a kill during startup and hang wait). Lines are cut to the terminal width so
+# nothing wraps; the first frame is drawn here so spin_stop always has FH lines to clear.
 spin_start() {
   [[ $UI == 1 ]] || return 0
-  local cols; cols=$(stty size </dev/tty 2>/dev/null | awk '{ print $2 }')
+  local cols i n=${#JP[@]} fb=(); cols=$(stty size </dev/tty 2>/dev/null | awk '{ print $2 }')
   [ "${cols:-0}" -gt 0 ] 2>/dev/null || cols=80  # empty/0/non-numeric = unknown
-  local t=${STEP:0:$(( cols > 3 ? cols - 3 : 0 ))}  # never wrap: \r only redraws one line
-  printf '\033[?25l'
-  { while :; do for f in ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏; do printf '\r\033[36m%s\033[0m %s\033[K' "$f" "$t"; sleep 0.1; done; done; } &
+  for ((i = 0; i < n; i++)); do [[ ${JB[i]} == 1 && ! -e "$RT/$i.rc" ]] && fb+=("$i"); done
+  FH=$(( ${#fb[@]} + 1 ))
+  frame() {  # $1 = spinner glyph, $2 = line separator; sets FR
+    local i l e=$'\033'; FR=""
+    for i in ${fb[@]+"${fb[@]}"}; do
+      if [[ -e "$RT/$i.rc" ]]; then l="✓ ${JN[i]} (background) done"; else l="$1 ${JN[i]} (background) $(( SECONDS - ${JT[i]%.*} + T0 ))s"; fi
+      FR+="${e}[2m${l:0:$(( cols > 1 ? cols - 1 : 0 ))}${e}[0m${e}[K$2"
+    done
+    l="$1 $STEP"; FR+="${e}[36m${l:0:1}${e}[0m${l:1:$(( cols > 2 ? cols - 2 : 0 ))}${e}[K"
+  }
+  printf '\033[?25l'; frame ⠋ $'\n'; printf '%s' "$FR"
+  local up=$'\r'; (( FH > 1 )) && up+=$'\033['"$(( FH - 1 ))A"
+  # Redraws move down with ESC[E, not newlines: one write per frame, so a mid-frame KILL cannot scroll.
+  { while :; do for f in ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏ ⠋; do sleep 0.1; frame "$f" $'\033[E'; printf '%s' "$up$FR"; done; done; } &
   SPIN=$!
 }
 spin_stop() {
   [[ -n $SPIN ]] || return 0
   kill -KILL "$SPIN" 2>/dev/null; wait "$SPIN" 2>/dev/null; SPIN=""
-  printf '\r\033[K\033[?25h'  # clear spinner line, show cursor
+  printf '\r'; (( FH > 1 )) && printf '\033[%dA' $(( FH - 1 ))
+  printf '\033[J\033[?25h'  # clear the footer, show cursor
 }
 note() { spin_stop; echo "   $*"; spin_start; }
 step() {
@@ -120,7 +168,7 @@ sp() {
   if [[ $UI == 0 ]]; then printf '   -> freed %s%s, %s\n' "$(gb $freed)" "$tm" "$(usage_line)"
   elif (( freed >= 50000000 )); then printf '\033[32m✓ %8s\033[0m  %s\033[2m%s\033[0m\n' "$(gb $freed)" "$STEP" "$tm"
   else printf '\033[2m· %8s  %s%s\033[0m\n' "$(gb $freed)" "$STEP" "$tm"; fi
-  STEP=""
+  STEP=""; reap
 }
 ASK=0; [[ -t 0 ]] && ASK=1  # checklists and questions need an interactive terminal
 confirm() {
@@ -141,12 +189,30 @@ pick() {
   else { echo; echo "$header"; printf '   %s\n' "${items[@]}"; } >&2; confirm "Delete them?" && printf '%s\n' "${items[@]}"; fi |
   while IFS= read -r l; do [[ $l == "~/"* ]] && l="$HOME${l#\~}"; printf '%s\n' "$l"; done
 }
+treepids() { local c; for c in $(pgrep -P "$1" 2>/dev/null); do treepids "$c"; done; echo "$1"; }
+# killtrees PID...: collect the whole trees first, TERM them, allow ~2s, then KILL survivors.
+# Survivors are found with ps, not kill -0: our own exited children stay zombies until reaped.
+killtrees() {
+  local p n all=() left=()
+  for p in "$@"; do all+=($(treepids "$p")); done
+  (( ${#all[@]} )) || return 0
+  kill -TERM "${all[@]}" 2>/dev/null
+  for n in 1 2 3 4 5 6 7 8 9 10; do
+    left=($(ps -o pid=,stat= -p "$(IFS=,; echo "${all[*]}")" 2>/dev/null | awk '$2 !~ /^Z/ { print $1 }'))
+    (( ${#left[@]} )) || return 0; sleep 0.2
+  done
+  kill -KILL "${left[@]}" 2>/dev/null
+}
 on_int() {
   spin_stop; echo; echo "Interrupted."
   [[ -z $SUDO_KEEP ]] || kill "$SUDO_KEEP" 2>/dev/null
-  kill -TERM ${pids[@]+"${pids[@]}"} 2>/dev/null; wait ${pids[@]+"${pids[@]}"} 2>/dev/null; exit 130
+  local i p t=()
+  for ((i = 0; i < ${#JP[@]}; i++)); do [[ -e "$RT/$i.rc" ]] || t+=("${JP[i]}"); done  # finished pids may be reused
+  killtrees ${t[@]+"${t[@]}"} ${WP[@]+"${WP[@]}"}
+  for p in ${JP[@]+"${JP[@]}"} ${WP[@]+"${WP[@]}"}; do wait "$p" 2>/dev/null; done
+  exit 130
 }
-trap 'spin_stop; [[ -z $SUDO_KEEP ]] || kill "$SUDO_KEEP" 2>/dev/null' EXIT
+trap 'spin_stop; [[ -z $SUDO_KEEP ]] || kill "$SUDO_KEEP" 2>/dev/null; rm -rf "$RT"' EXIT
 trap on_int INT TERM
 
 XCODE_RUNNING=0; pgrep -xq Xcode && XCODE_RUNNING=1
@@ -176,6 +242,9 @@ fi
 [[ $mode == Abort ]] && { echo "Aborted."; exit 0; }
 START_T=$SECONDS
 disk; START_FREE=$FREE
+# Slow, independent work runs behind all other steps (live footer) and is reaped before the summary.
+have brew && job 1 "Homebrew cleanup" brew cleanup --prune=all
+[[ $XCODE_RUNNING == 0 ]] && xcrun --find simctl >/dev/null 2>&1 && job 1 "Unavailable simulators" xcrun simctl delete unavailable
 
 # --- system caches & logs (root-owned): admin password up front; Ctrl-C at the prompt only skips them ---
 SUDO=0
@@ -234,23 +303,19 @@ if [[ $SUDO == 1 ]]; then
   sp
 fi
 
-# --- package managers: independent and slow to start (brew ~8s, pnpm ~4s), so run concurrently ---
-par() { "$@" </dev/null >/dev/null 2>&1 & pids+=($!); }
+# --- package managers: independent, so run concurrently (Homebrew already runs in the background) ---
 # yarn v1, CocoaPods and the Go build cache live in ~/Library/Caches, which a later step wipes.
-step "Package caches: npm, pnpm, Go modules, conda, Homebrew, Docker"
-have npm    && par npm cache clean --force
-have pnpm   && par pnpm store prune
-have go     && par go clean -modcache  # module files are read-only, so rm alone can't remove them
-have conda  && par conda clean -a -y
-have brew   && par brew cleanup --prune=all
+step "Package caches: npm, pnpm, Go modules, conda, Docker"
+have npm    && job 0 npm npm cache clean --force
+have pnpm   && job 0 pnpm pnpm store prune
+have go     && job 0 go go clean -modcache  # module files are read-only, so rm alone can't remove them
+have conda  && job 0 conda conda clean -a -y
 # Docker: stopped containers, unused networks, ALL unused images, build cache; keeps volumes.
 # Skipped when OrbStack is installed but not running (any docker command would boot its VM).
 if have docker && ! { [[ -d /Applications/OrbStack.app ]] && ! pgrep -xq OrbStack; }; then
-  par docker system prune -a -f
+  job 0 docker docker system prune -a -f
 fi
-(( ${#pids[@]} )) && wait "${pids[@]}"
-pids=()
-sp
+wait_group; sp
 
 # --- generic user cache (whole ~/.cache; may include ML/tool caches, all regenerable) ---
 step "~/.cache"; rm -rf "${HOME:?}/.cache/"* 2>/dev/null; sp
@@ -267,8 +332,10 @@ rm -rf "${HOME:?}/.bun/install/cache" "${HOME:?}/.yarn/berry/cache" \
 # --- Dart / Flutter ---
 step "Flutter build/.dart_tool in ~/github (pubspec-guarded)"
 if [[ -d "$GH" ]]; then
-  while IFS= read -r p; do d=$(dirname "$p"); rm -rf "$d/build" "$d/.dart_tool" 2>/dev/null; done \
-    < <(find "$GH" -maxdepth 4 -name pubspec.yaml -not -path "*/build/*" 2>/dev/null)
+  while IFS= read -r -d '' p; do
+    d=${p%/*}; [[ -e "$d/build" || -e "$d/.dart_tool" ]] && rm -rf "$d/build" "$d/.dart_tool" 2>/dev/null
+  done < <(find "$GH" -maxdepth 4 -type d \( -name .git -o -name node_modules -o -name build -o -name .dart_tool \
+             -o -name .venv -o -name target \) -prune -o -name pubspec.yaml -print0 2>/dev/null)
 fi; sp
 # download caches only — keep ~/.pub-cache/bin + global_packages (activated CLIs)
 step "pub-cache downloads (keeps global CLIs)"
@@ -283,7 +350,7 @@ if [[ $XCODE_RUNNING == 0 ]]; then
   rm -rf "${HOME:?}/Library/Developer/Xcode/iOS DeviceSupport/"* \
          "${HOME:?}/Library/Developer/Xcode/watchOS DeviceSupport/"* \
          "${HOME:?}/Library/Developer/CoreSimulator/Caches/"* 2>/dev/null
-  have xcrun && run xcrun simctl delete unavailable; sp
+  sp
 fi
 
 # --- Rust ---
@@ -298,10 +365,12 @@ step "gradle caches"; rm -rf "${HOME:?}/.gradle/caches" 2>/dev/null; sp
 # Wipe ~/Library/Caches, but skip JetBrains/Android Studio dirs so their
 # LocalHistory (per-file IDE edit history — NOT regenerable) survives.
 step "~/Library/Caches (keeping IDE dirs for LocalHistory)"
+# Homebrew is skipped: the background `brew cleanup --prune=all` already empties its own cache.
 find "${HOME:?}/Library/Caches" -mindepth 1 -maxdepth 1 \
-     ! -name JetBrains ! -name Google ! -name 'AndroidStudio*' \
+     ! -name JetBrains ! -name Google ! -name 'AndroidStudio*' ! -name Homebrew \
      -exec rm -rf {} + 2>/dev/null; sp
-step "~/Library/Logs"; rm -rf "${HOME:?}/Library/Logs/"* 2>/dev/null; sp
+step "~/Library/Logs"
+find "${HOME:?}/Library/Logs" -mindepth 1 -maxdepth 1 ! -name Homebrew -exec rm -rf {} + 2>/dev/null; sp
 
 # --- VS Code-family editors: Electron caches, logs, cached extension installers (only while closed) ---
 step "Editor caches: VS Code, Cursor, Windsurf"
@@ -318,7 +387,7 @@ step "App caches: Slack, Discord old versions + updates, Raycast updates, Zed np
 [[ -d "$AS/Slack" ]] && app_closed Slack && rm -rf "$AS/Slack/Service Worker" "$AS/Slack/logs" 2>/dev/null
 if [[ -d "$AS/discord" ]] && app_closed Discord; then  # keep the newest app-* version
   rm -rf "$AS/discord/download" 2>/dev/null
-  ls -d "$AS/discord/"app-* 2>/dev/null | sort -V | sed '$d' | while IFS= read -r v; do rm -rf "$v"; done
+  ls -d "$AS/discord/"app-* 2>/dev/null | sort -V | sed '$d' | while IFS= read -r v; do rm -rf "$v" 2>/dev/null; done
 fi
 rm -rf "$AS/com.raycast.macos/Updates/"* "$AS/Zed/node/cache" 2>/dev/null  # update downloads, npm cache
 sp
@@ -331,7 +400,7 @@ rm -rf "${HOME:?}/Library/Containers/com.apple.mail/Data/Library/Mail Downloads/
 step "Broken preference files"
 prefs=("${HOME:?}/Library/Preferences/"*.plist "${HOME:?}/Library/Preferences/ByHost/"*.plist)
 plutil -lint "${prefs[@]}" 2>&1 >/dev/null | while IFS= read -r l; do  # failures go to stderr as "path: (why)"
-  f=${l%%: (*}; [[ -f "$f" ]] && rm -f "$f"
+  f=${l%%: (*}; [[ -f "$f" ]] && rm -f "$f" 2>/dev/null
 done; sp
 
 # --- Trash (opted in — irreversible), incl. this user's trash on external drives ---
@@ -346,7 +415,9 @@ shopt -u dotglob
 # --- agent review ledgers (local-only, regenerable) ---
 # ~/flutter holds the snapshots of its worktrees that live in ~/github.
 step "agent-reviews in ~/github repos and ~/flutter (.git/agent-reviews + per-worktree)"
-for g in ${repos[@]+"${repos[@]}"}; do rm -rf "$g/agent-reviews" "$g/worktrees/"*/agent-reviews 2>/dev/null; done; sp
+for g in ${repos[@]+"${repos[@]}"}; do
+  for a in "$g/agent-reviews" "$g/worktrees/"*/agent-reviews; do [[ -e "$a" ]] && rm -rf "$a" 2>/dev/null; done
+done; sp
 
 # Agent worktree dirs: Claude (<repo>/.claude/worktrees/*), T3 Code (~/.t3/worktrees/<repo>/*),
 # Codex (~/.codex/worktrees/<id>/<repo>).
@@ -383,26 +454,35 @@ fi
 
 # --- linked git worktrees of all repos: one checklist; only clean ones with commits on a branch preselected ---
 if [[ $ASK == 1 ]]; then
-  labels=(); sel=""
+  labels=(); sel=""; wtrepos=(); n=0
   for g in ${repos[@]+"${repos[@]}"}; do
-    [[ -n "$(ls -A "$g/worktrees" 2>/dev/null)" ]] || continue
+    [[ -d "$g/worktrees" ]] || continue
+    wtrepos+=("$g")
     while IFS= read -r w; do
       [[ -n "$w" && -d "$w" ]] || continue
-      b=$(git -C "$w" branch --show-current 2>/dev/null)
-      l="$w │ ${b:-detached} · last commit $(git -C "$w" log -1 --format=%cs 2>/dev/null)"
-      if ! st=$(git -C "$w" status --porcelain 2>/dev/null); then l+=" · ⚠ STATUS UNKNOWN"
-      elif [[ -n "$st" ]]; then l+=" · ⚠ UNCOMMITTED CHANGES"
-      elif [[ -z "$(git -C "$w" for-each-ref --count=1 --contains HEAD refs/heads refs/remotes 2>/dev/null)" ]]; then l+=" · ⚠ COMMITS ON NO BRANCH"
-      else sel+="${sel:+,}$l"; fi
-      labels+=("$l")
+      {  # one subshell per worktree: git status on big repos takes ~0.25s each
+        b=$(git -C "$w" branch --show-current 2>/dev/null); ok=0
+        l="$w │ ${b:-detached} · last commit $(git -C "$w" log -1 --format=%cs 2>/dev/null)"
+        if ! st=$(git -C "$w" status --porcelain 2>/dev/null); then l+=" · ⚠ STATUS UNKNOWN"
+        elif [[ -n "$st" ]]; then l+=" · ⚠ UNCOMMITTED CHANGES"
+        elif [[ -z "$(git -C "$w" for-each-ref --count=1 --contains HEAD refs/heads refs/remotes 2>/dev/null)" ]]; then l+=" · ⚠ COMMITS ON NO BRANCH"
+        else ok=1; fi
+        printf '%s\n%s\n' "$ok" "$l" > "$RT/wt.$n"
+      } &
+      WP+=($!); n=$((n + 1))
     done < <(git -C "${g%/.git}" worktree list --porcelain 2>/dev/null | awk '/^worktree /{sub(/^worktree /,""); print}' | tail -n +2)
+  done
+  (( ${#WP[@]} )) && wait "${WP[@]}"; WP=()
+  for ((i = 0; i < n; i++)); do
+    { read -r ok; IFS= read -r l; } < "$RT/wt.$i"
+    labels+=("$l"); (( ok )) && sel+="${sel:+,}$l"
   done
   if (( ${#labels[@]} )); then
     while IFS= read -r l; do
       [[ -n "$l" ]] || continue; w=${l%% │*}
       { common=$(wt_common "$w") && git -C "$common" worktree remove --force --force "$w" </dev/null >/dev/null 2>&1; } || echo "   !! could not remove $w"
     done < <(pick "Linked worktrees to delete (space toggles, enter confirms)" "$sel" "${labels[@]}")
-    for g in "${repos[@]}"; do git -C "${g%/.git}" worktree prune </dev/null >/dev/null 2>&1; done
+    for g in "${wtrepos[@]}"; do git -C "${g%/.git}" worktree prune </dev/null >/dev/null 2>&1; done
   fi
 fi
 
@@ -464,7 +544,7 @@ rm -rf "${HOME:?}/.local/share/opencode/snapshot" "${HOME:?}/.codex/.tmp/"* 2>/d
 active_claude=$(readlink "${HOME:?}/.local/bin/claude" 2>/dev/null)
 if [[ -n "$active_claude" ]]; then
   for v in "${HOME:?}/.local/share/claude/versions/"*; do
-    [[ -e "$v" && "$v" != "$active_claude" ]] && rm -rf "$v"
+    [[ -e "$v" && "$v" != "$active_claude" ]] && rm -rf "$v" 2>/dev/null
   done
 fi
 sp
@@ -475,7 +555,7 @@ if [[ $ASK == 1 ]]; then
   for b in "${HOME:?}/Library/Application Support/MobileSync/Backup/"*/; do  # needs Full Disk Access
     [[ -d "$b" ]] || continue; b=${b%/}
     n=$(plutil -extract "Device Name" raw -o - "$b/Info.plist" 2>/dev/null)
-    data+=("$b │ iOS backup of ${n:-unknown device}, $(stat -f %Sm -t %Y-%m-%d "$b"), $(du -sh "$b" 2>/dev/null | awk '{ print $1 }')")
+    data+=("$b │ iOS backup of ${n:-unknown device}, $(stat -f %Sm -t %Y-%m-%d "$b" 2>/dev/null), $(du -sh "$b" 2>/dev/null | awk '{ print $1 }')")
   done
   # Release builds + dSYMs: needed to symbolicate crash reports of shipped versions, not regenerable.
   for x in "${HOME:?}/Library/Developer/Xcode/Archives/"*/*.xcarchive; do
@@ -500,15 +580,16 @@ if [[ $DEEP == 1 && -d "$GH" ]]; then
   step "--deep: node_modules, Python .venv, Rust target/ (next to Cargo.toml) across ~/github"
   while IFS= read -r p; do  # one pass; pruned dirs are not descended into
     case $p in
-      */Cargo.toml) rm -rf "${p%/Cargo.toml}/target" ;;
-      */node_modules|*/.venv) rm -rf "$p" ;;
+      */Cargo.toml) rm -rf "${p%/Cargo.toml}/target" 2>/dev/null ;;
+      */node_modules|*/.venv) rm -rf "$p" 2>/dev/null ;;
     esac
   done < <(find "$GH" \( -name node_modules -o -name .venv -o -name target -o -name .git \) -type d -prune -print \
              -o -name Cargo.toml -print 2>/dev/null)
   sp
 fi
 
-sp; disk
+bg_running && { step "Finishing background jobs"; while bg_running; do sleep 0.2; done; }
+sp; reap; disk
 done_msg="Freed $(gb $((FREE - START_FREE))) in $((SECONDS - START_T))s · now $(usage_line)"
 echo
 if [[ $UI == 1 ]]; then gum style --border rounded --border-foreground 2 --padding "0 1" --bold "$done_msg"
