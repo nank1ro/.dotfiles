@@ -19,6 +19,9 @@ Never touches: source code, browser profiles, SDK-matched simulator runtimes,
 installed CLI binaries (~/.cargo/bin, ~/.pub-cache/bin), or JetBrains/Android
 Studio Local History.
 
+Shows live progress with gum (charm.land), installed via Homebrew (or a verified release download)
+on first run; falls back to plain text when gum is unavailable or output is piped.
+
 Usage:
   reclaim            confirm, then clean
   reclaim -y         skip the prompt (cron-safe)
@@ -38,17 +41,70 @@ for a in "$@"; do
   esac
 done
 
-# Whole APFS container (Data + system volumes), matching Finder/Stats rather than df's Data-only %.
-sp()   { /usr/sbin/diskutil info / 2>/dev/null | awk -F'[()]' '
-  /Container Total Space/ { t = $2 + 0 }
-  /Container Free Space/  { f = $2 + 0; h = $1; sub(/.*: +/, "", h); sub(/ +$/, "", h) }
-  END { if (t) { p = int(f * 100 / t + 0.5); printf "   -> %s free (%d%%), %d%% used\n", h, p, 100 - p } }'; }
 have() { command -v "$1" >/dev/null 2>&1; }
-step() { printf '[%s]\n' "$1"; }
 # Run external tools with NO stdin, so nothing (e.g. Corepack's pnpm/yarn download
 # prompt) can silently block the script waiting on an invisible confirmation.
 export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 run() { "$@" </dev/null >/dev/null 2>&1; }
+
+# Whole APFS container (Data + system volumes), matching Finder/Stats rather than df's Data-only %.
+# Sets FREE (bytes), FREE_H (e.g. "86.6 GB") and FREE_PCT.
+disk() {
+  local t
+  read -r t FREE FREE_H < <(/usr/sbin/diskutil info / 2>/dev/null | awk -F'[()]' '
+    /Container Total Space/ { t = $2 + 0 }
+    /Container Free Space/  { f = $2 + 0; h = $1; sub(/.*: +/, "", h); sub(/ +$/, "", h) }
+    END { printf "%.0f %.0f %s\n", t, f, h }')
+  FREE_PCT=$(( t ? (FREE * 100 + t / 2) / t : 0 ))
+}
+gb() { awk -v b="$1" 'BEGIN { printf "%.1f GB", (b > 0 ? b : 0) / 1e9 }'; }
+
+# Live progress via gum (charm.land): install it on first run, else fall back to plain text.
+# Without brew, fetch the checksum-verified release binary into ~/.local/bin (stock macOS tools only).
+gum_fetch() {
+  local base=https://github.com/charmbracelet/gum/releases tag ver arch tmp asset
+  tag=$(curl -fsSIL -o /dev/null -w '%{url_effective}' "$base/latest") || return 1; tag=${tag##*/}; ver=${tag#v}
+  case $(uname -m) in arm64) arch=arm64 ;; x86_64) arch=x86_64 ;; *) return 1 ;; esac
+  asset=gum_${ver}_Darwin_$arch.tar.gz; tmp=$(mktemp -d) || return 1
+  { curl -fsSL -o "$tmp/$asset" "$base/download/$tag/$asset" && curl -fsSL -o "$tmp/sums" "$base/download/$tag/checksums.txt" &&
+    [[ $(shasum -a 256 "$tmp/$asset" | awk '{print $1}') == "$(awk -v f="$asset" '$2 == f {print $1}' "$tmp/sums")" ]] &&
+    tar -xzf "$tmp/$asset" -C "$tmp" "${asset%.tar.gz}/gum" && mkdir -p "$HOME/.local/bin" &&
+    install -m 755 "$tmp/${asset%.tar.gz}/gum" "$HOME/.local/bin/gum"; } 2>/dev/null
+  local rc=$?; rm -rf "$tmp"; return $rc
+}
+if ! have gum; then
+  echo "reclaim: installing gum for live progress (one-time)..."
+  if have brew; then run brew install gum; else gum_fetch </dev/null >/dev/null 2>&1 || true; fi
+  case :$PATH: in *":$HOME/.local/bin:"*) ;; *) PATH="$PATH:$HOME/.local/bin" ;; esac
+fi
+UI=0; [[ -t 1 ]] && have gum && UI=1
+
+# step NAME starts a step (spinner in UI mode); sp ends it and reports the space it freed.
+STEP=""; SPIN=""
+spin_start() { [[ $UI == 1 ]] || return 0; gum spin --spinner minidot --title "$STEP" -- sleep 86400 </dev/null & SPIN=$!; }
+spin_stop() {
+  [[ -n $SPIN ]] || return 0
+  kill "$SPIN" 2>/dev/null; wait "$SPIN" 2>/dev/null; SPIN=""
+  printf '\r\033[K\033[?25h'  # clear spinner line, restore cursor gum hid
+}
+note() { spin_stop; echo "   $*"; spin_start; }
+step() {
+  sp; STEP=$1; disk; STEP_FREE=$FREE
+  if [[ $UI == 1 ]]; then spin_start; else printf '[%s]\n' "$1"; fi
+}
+sp() {
+  [[ -n $STEP ]] || return 0
+  spin_stop; disk
+  if [[ $UI == 1 ]]; then printf '\033[32m✓\033[0m %8s  %s\n' "$(gb $((FREE - STEP_FREE)))" "$STEP"
+  else printf '   -> freed %s, %s free (%d%%)\n' "$(gb $((FREE - STEP_FREE)))" "$FREE_H" "$FREE_PCT"; fi
+  STEP=""
+}
+confirm() {
+  if [[ $UI == 1 ]]; then gum confirm --default=false "$1"
+  else local a; read -r -p "$1 [y/N] " a || a=""; [[ $a == [yY]* ]]; fi
+}
+trap 'spin_stop' EXIT
+trap 'spin_stop; echo; echo "Interrupted."; exit 130' INT TERM
 
 XCODE_RUNNING=0; pgrep -xq Xcode && XCODE_RUNNING=1
 
@@ -64,10 +120,10 @@ if [[ $XCODE_RUNNING == 1 ]]; then
   echo "!! Xcode is running — skipping DerivedData & DeviceSupport (quit Xcode to include)."; echo
 fi
 if [[ $YES == 0 ]]; then
-  read -r -p "Proceed? [y/N] " ans || ans=""
-  [[ "${ans:-}" == [yY]* ]] || { echo "Aborted."; exit 0; }
+  confirm "Proceed?" || { echo "Aborted."; exit 0; }
 fi
-echo; echo "START:"; sp; echo
+disk; START_FREE=$FREE
+echo; echo "START: $FREE_H free ($FREE_PCT% free, $((100 - FREE_PCT))% used)"; echo
 
 # --- JavaScript / TypeScript ---
 have npm  && { step "npm cache";        run npm cache clean --force; sp; }
@@ -155,9 +211,9 @@ step "Claude/T3 Code/Codex worktrees untouched >14d (clean, commits on a branch)
 while IFS= read -r -u 3 w; do
   common=$(wt_common "$w") || continue
   [[ -z "$(find "$w" -mtime -14 -print -quit 2>/dev/null)" ]] || continue
-  [[ -z "$(git -C "$w" status --porcelain 2>/dev/null)" ]] || { echo "   !! kept (uncommitted changes, check it): $w"; continue; }
-  [[ -n "$(git -C "$w" for-each-ref --count=1 --contains HEAD refs/heads refs/remotes 2>/dev/null)" ]] || { echo "   !! kept (commits on no branch, check it): $w"; continue; }
-  git -C "$common" worktree remove "$w" </dev/null >/dev/null 2>&1 && echo "   removed $w"
+  [[ -z "$(git -C "$w" status --porcelain 2>/dev/null)" ]] || { note "!! kept (uncommitted changes, check it): $w"; continue; }
+  [[ -n "$(git -C "$w" for-each-ref --count=1 --contains HEAD refs/heads refs/remotes 2>/dev/null)" ]] || { note "!! kept (commits on no branch, check it): $w"; continue; }
+  git -C "$common" worktree remove "$w" </dev/null >/dev/null 2>&1 && note "removed $w"
 done 3< <(agent_wts)
 sp
 
@@ -173,8 +229,7 @@ if [[ $YES == 0 && -d "$GH" ]]; then
       dirty=""; [[ -n "$(git -C "$w" status --porcelain 2>/dev/null)" ]] && dirty=" [UNCOMMITTED CHANGES]"
       echo "   $w$dirty"
     done <<< "$wts"
-    read -r -p "Delete them and .git/worktrees? [y/N] " ans || ans=""
-    [[ "${ans:-}" == [yY]* ]] || continue
+    confirm "Delete them and .git/worktrees?" || continue
     ok=1
     while IFS= read -r w; do
       [[ -z "$w" ]] && continue
@@ -193,8 +248,7 @@ if [[ $YES == 0 ]]; then
   if (( ${#orphans[@]} )); then
     echo; echo "Claude/T3 Code/Codex worktree dirs git no longer tracks (contents are lost):"
     printf '   %s\n' "${orphans[@]}"
-    read -r -p "Delete them? [y/N] " ans || ans=""
-    [[ "${ans:-}" == [yY]* ]] && rm -rf "${orphans[@]}"
+    confirm "Delete them?" && rm -rf "${orphans[@]}"
     sp
   fi
 fi
@@ -211,9 +265,9 @@ find "${HOME:?}/.claude/projects" "${HOME:?}/.codex/sessions" -mindepth 1 -type 
 step "T3 Code state DB VACUUM + Electron caches"
 t3db="${HOME:?}/.t3/userdata/statev2.sqlite"
 if [[ ! -x /usr/sbin/lsof ]]; then
-  echo "   !! /usr/sbin/lsof not found, skipped (cannot verify T3 Code is closed)"
+  note "!! /usr/sbin/lsof not found, skipped (cannot verify T3 Code is closed)"
 elif pgrep -f 'T3 Code' >/dev/null || { [[ -f "$t3db" ]] && /usr/sbin/lsof -t -- "$t3db" >/dev/null 2>&1; }; then
-  echo "   !! T3 Code is running, skipped (quit it to include)"
+  note "!! T3 Code is running, skipped (quit it to include)"
 else
   [[ -f "$t3db" ]] && have sqlite3 && run sqlite3 "$t3db" 'VACUUM;'
   for a in "${HOME:?}/Library/Application Support/"{t3code,t3code-v2}; do
@@ -240,4 +294,5 @@ if [[ $DEEP == 1 && -d "$GH" ]]; then
   find "$GH" -type d -name .venv -prune -exec rm -rf {} + 2>/dev/null; sp
 fi
 
-echo; echo "DONE."; sp
+sp; disk
+echo; echo "DONE: $FREE_H free ($FREE_PCT% free, $((100 - FREE_PCT))% used), freed $(gb $((FREE - START_FREE)))"
