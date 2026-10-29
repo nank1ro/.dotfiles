@@ -300,10 +300,9 @@ echo
 if [[ $SUDO == 1 ]]; then
   step "System caches & logs (icon + symbol caches, /Library/Logs, rotated /var/log)"
   sudo -n sh -c 'rm -rf /Library/Caches/com.apple.iconservices.store /System/Library/Caches/com.apple.coresymbolicationd/*' 2>/dev/null
-  # iconservicesd keeps the deleted store open: restart it so the space is released (icons rebuild on demand).
-  # coresymbolicationd refuses kickstart (SIP) but idle-exits on its own (EnablePressuredExit), releasing its cache.
-  sudo -n launchctl kickstart -k system/com.apple.iconservices.iconservicesd 2>/dev/null ||
-    note "!! could not restart iconservicesd; the icon cache space returns after a reboot"
+  # iconservicesd and coresymbolicationd may keep the deleted files open, so some space can show up only later.
+  # SIP blocks restarting them (launchctl kickstart fails), but both idle-exit on their own
+  # (EnablePressuredExit), which releases it; icons rebuild on demand.
   sudo -n find /Library/Logs -type f -delete 2>/dev/null
   sudo -n find /private/var/log -type f \( -name '*.gz' -o -name '*.bz2' -o -name '*.[0-9]' \) -delete 2>/dev/null
   sp
