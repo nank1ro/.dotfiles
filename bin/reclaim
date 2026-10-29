@@ -18,6 +18,9 @@ system icon + symbol caches, /Library/Logs and rotated /var/log files.
 Always removes Claude/T3 Code/Codex worktrees untouched for 14+ days if clean
 and their commits are on a branch.
 
+Asks to open System Settings when Full Disk Access is missing for Mail downloads
+and iOS backups ("Don't ask again" is stored in ~/.local/state/reclaim).
+
 Checklists (interactive terminal only): linked git worktrees (uncommitted ones
 unticked), stale worktrees kept for safety, orphaned worktree dirs, login items
 whose program is gone, and opt-in real data (iOS backups, deleted users' homes).
@@ -163,6 +166,41 @@ fi
 if [[ $SUDO == 1 ]]; then
   { while sudo -n -v 2>/dev/null; do sleep 50; done; } </dev/null >/dev/null 2>&1 &
   SUDO_KEEP=$!
+fi
+
+# --- Full Disk Access: Mail downloads + iOS backups are privacy-protected; offer to open the settings pane ---
+FDA_SKIP="${HOME:?}/.local/state/reclaim/skip-fda-prompt"
+fda_missing() {
+  local d
+  for d in "${HOME:?}/Library/Containers/com.apple.mail/Data/Library/Mail Downloads" \
+           "${HOME:?}/Library/Application Support/MobileSync/Backup"; do
+    [[ -d "$d" ]] && ! /bin/ls "$d" >/dev/null 2>&1 && return 0
+  done
+  return 1
+}
+if [[ $ASK == 1 && ! -e "$FDA_SKIP" ]] && fda_missing; then
+  case ${TERM_PROGRAM:-} in
+    ghostty) term=Ghostty ;; Apple_Terminal) term=Terminal ;; iTerm.app) term=iTerm ;; vscode) term="VS Code" ;;
+    *) term="your terminal app" ;;
+  esac
+  msg="Mail downloads and iOS backups need Full Disk Access for $term."
+  if [[ $UI == 1 ]]; then
+    ans=$(gum choose --header "$msg" "Open System Settings" "Not now" "Don't ask again" </dev/tty) || ans="Not now"
+  else
+    echo "$msg"
+    read -r -p "[o]pen System Settings, [n]ot now, [d]on't ask again? " a </dev/tty || a=""
+    case $a in
+      [oO]*) ans="Open System Settings" ;;
+      [dD]*) ans="Don't ask again" ;;
+      *) ans="Not now" ;;
+    esac
+  fi
+  case $ans in
+    "Open System Settings")
+      open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+      echo "   Turn on $term there and restart it; this run skips those folders." ;;
+    "Don't ask again") mkdir -p "${FDA_SKIP%/*}" && touch "$FDA_SKIP" ;;
+  esac
 fi
 echo
 if [[ $SUDO == 1 ]]; then
