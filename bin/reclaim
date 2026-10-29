@@ -58,12 +58,11 @@ export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 run() { "$@" </dev/null >/dev/null 2>&1; }
 
 gb() { awk -v b="$1" 'BEGIN { printf "%.1f GB", (b > 0 ? b : 0) / 1e9 }'; }
-# Whole APFS container (Data + system volumes), matching Finder/Stats rather than df's Data-only %.
-# diskutil (slow) only for the fixed container size; df's avail on Data is the container's free space.
-TOTAL=$(/usr/sbin/diskutil info / 2>/dev/null | awk -F'[()]' '/Container Total Space/ { printf "%.0f", $2 }')
-# Sets FREE (bytes), FREE_H (e.g. "86.6 GB") and FREE_PCT.
+# Whole APFS container (Data + system volumes), matching Finder/Stats rather than df's Data-only %:
+# df's size and avail for the Data volume are the container's total and free space.
+# Sets TOTAL and FREE (bytes), FREE_H (e.g. "86.6 GB") and FREE_PCT.
 disk() {
-  FREE=$(( $(df -k /System/Volumes/Data | awk 'NR == 2 { print $4 }') * 1024 ))
+  read -r TOTAL FREE < <(df -k /System/Volumes/Data | awk 'NR == 2 { printf "%.0f %.0f\n", $2 * 1024, $4 * 1024 }')
   FREE_H=$(gb "$FREE"); FREE_PCT=$(( ${TOTAL:-0} ? (FREE * 100 + TOTAL / 2) / TOTAL : 0 ))
 }
 usage_line() { echo "$FREE_H free ($FREE_PCT% free, $((100 - FREE_PCT))% used)"; }
@@ -126,12 +125,19 @@ confirm() {
   if [[ $UI == 1 ]]; then gum confirm --default=false "$1" </dev/tty
   else local a; read -r -p "$1 [y/N] " a </dev/tty || a=""; [[ $a == [yY]* ]]; fi
 }
-# pick HEADER SELECTED ITEM...: prints the chosen items, one per line. Items are "path │ details".
-# UI: gum multi-select, SELECTED is a comma list of preselected items or "*"; plain: one y/N for all.
+short() { case $1 in "$HOME"/*) printf '%s\n' "~${1#"$HOME"}" ;; *) printf '%s\n' "$1" ;; esac; }
+# pick HEADER SELECTED ITEM...: prints the chosen items, one per line. Items are "path │ details",
+# shown with ~ for $HOME. UI: gum multi-select, SELECTED is a comma list of items or "*";
+# plain: one y/N for all.
 pick() {
-  local header=$1 sel=$2; shift 2
-  if [[ $UI == 1 ]]; then gum choose --no-limit --height 15 --header "$header" --selected "$sel" "$@" </dev/tty || true
-  else { echo; echo "$header"; printf '   %s\n' "$@"; } >&2; confirm "Delete them?" && printf '%s\n' "$@"; fi
+  local header=$1 sel=$2 i l items=() s=(); shift 2
+  for i in "$@"; do items+=("$(short "$i")"); done
+  if [[ $sel != "*" && -n $sel ]]; then
+    IFS=, read -r -a s <<< "$sel"; sel=""; for i in "${s[@]}"; do sel+="${sel:+,}$(short "$i")"; done
+  fi
+  if [[ $UI == 1 ]]; then gum choose --no-limit --height 15 --header "$header" --selected "$sel" "${items[@]}" </dev/tty || true
+  else { echo; echo "$header"; printf '   %s\n' "${items[@]}"; } >&2; confirm "Delete them?" && printf '%s\n' "${items[@]}"; fi |
+  while IFS= read -r l; do [[ $l == "~/"* ]] && l="$HOME${l#\~}"; printf '%s\n' "$l"; done
 }
 on_int() {
   spin_stop; echo; echo "Interrupted."
@@ -209,7 +215,10 @@ echo
 if [[ $SUDO == 1 ]]; then
   step "System caches & logs (icon + symbol caches, /Library/Logs, rotated /var/log)"
   sudo -n sh -c 'rm -rf /Library/Caches/com.apple.iconservices.store /System/Library/Caches/com.apple.coresymbolicationd/*' 2>/dev/null
-  sudo -n killall iconservicesd 2>/dev/null  # launchd restarts it; icons rebuild on demand
+  # The daemons keep the deleted files open; restart them so the space is released (icons rebuild on demand).
+  for d in com.apple.iconservices.iconservicesd com.apple.coresymbolicationd; do
+    sudo -n launchctl kickstart -k "system/$d" 2>/dev/null || note "!! could not restart $d; its space returns after a reboot"
+  done
   sudo -n find /Library/Logs -type f -delete 2>/dev/null
   sudo -n find /private/var/log -type f \( -name '*.gz' -o -name '*.bz2' -o -name '*.[0-9]' \) -delete 2>/dev/null
   sp
@@ -217,15 +226,18 @@ fi
 
 # --- package managers: independent and slow to start (brew ~8s, pnpm ~4s), so run concurrently ---
 par() { "$@" </dev/null >/dev/null 2>&1 & pids+=($!); }
-step "Package caches: npm, pnpm, yarn, CocoaPods, Go, conda, Homebrew, Docker"
+# yarn v1, CocoaPods and the Go build cache live in ~/Library/Caches, which a later step wipes.
+step "Package caches: npm, pnpm, Go modules, conda, Homebrew, Docker"
 have npm    && par npm cache clean --force
 have pnpm   && par pnpm store prune
-have yarn   && par yarn cache clean
-have pod    && par pod cache clean --all
-have go     && par go clean -cache -modcache
+have go     && par go clean -modcache  # module files are read-only, so rm alone can't remove them
 have conda  && par conda clean -a -y
 have brew   && par brew cleanup --prune=all
-have docker && par docker system prune -a -f  # stopped containers, unused networks, ALL unused images, build cache; keeps volumes
+# Docker: stopped containers, unused networks, ALL unused images, build cache; keeps volumes.
+# Skipped when OrbStack is installed but not running (any docker command would boot its VM).
+if have docker && ! { [[ -d /Applications/OrbStack.app ]] && ! pgrep -xq OrbStack; }; then
+  par docker system prune -a -f
+fi
 (( ${#pids[@]} )) && wait "${pids[@]}"
 pids=()
 sp
@@ -317,18 +329,22 @@ done; sp
 # --- Trash (opted in — irreversible), incl. this user's trash on external drives ---
 step "Trash"; find "${HOME:?}/.Trash" /Volumes/*/.Trashes/"$(id -u)" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; sp
 
+# Git dirs of repos in ~/github (1-2 levels deep, incl. dot-dirs) and ~/flutter: globs, not a full-tree find.
+repos=()
+shopt -s dotglob
+for g in "$GH"/*/.git "$GH"/*/*/.git "${HOME:?}/flutter/.git"; do [[ -d "$g" ]] && repos+=("$g"); done
+shopt -u dotglob
+
 # --- agent review ledgers (local-only, regenerable) ---
 # ~/flutter holds the snapshots of its worktrees that live in ~/github.
-if [[ -d "$GH" ]]; then
-  step "agent-reviews in ~/github repos and ~/flutter (.git/agent-reviews + per-worktree)"
-  find "$GH" "${HOME:?}/flutter" -maxdepth 6 -type d -name agent-reviews -path '*/.git/*' -prune -exec rm -rf {} + 2>/dev/null; sp
-fi
+step "agent-reviews in ~/github repos and ~/flutter (.git/agent-reviews + per-worktree)"
+for g in ${repos[@]+"${repos[@]}"}; do rm -rf "$g/agent-reviews" "$g/worktrees/"*/agent-reviews 2>/dev/null; done; sp
 
 # Agent worktree dirs: Claude (<repo>/.claude/worktrees/*), T3 Code (~/.t3/worktrees/<repo>/*),
 # Codex (~/.codex/worktrees/<id>/<repo>).
 agent_wts() {
-  local d w
-  { while IFS= read -r d; do printf '%s\n' "$d"/*/; done < <(find "$GH" -maxdepth 5 -type d -path '*/.claude/worktrees' -prune 2>/dev/null)
+  local g w
+  { for g in ${repos[@]+"${repos[@]}"}; do printf '%s\n' "${g%/.git}/.claude/worktrees/"*/; done
     printf '%s\n' "$HOME"/.t3/worktrees/*/*/ "$HOME"/.codex/worktrees/*/*/; } |
   while IFS= read -r w; do w=${w%/}; [[ -d "$w" ]] && printf '%s\n' "$w"; done
 }
@@ -357,27 +373,29 @@ if [[ $ASK == 1 ]] && (( ${#kept[@]} )); then
   done < <(pick "Stale worktrees kept for safety: tick any to delete anyway (their work is lost)" "" "${kept[@]}")
 fi
 
-# --- linked git worktrees: per-repo checklist, clean ones preselected, uncommitted ones not ---
-if [[ $ASK == 1 && -d "$GH" ]]; then
-  while IFS= read -r -u 3 g; do
+# --- linked git worktrees of all repos: one checklist; only clean ones with commits on a branch preselected ---
+if [[ $ASK == 1 ]]; then
+  labels=(); sel=""
+  for g in ${repos[@]+"${repos[@]}"}; do
     [[ -n "$(ls -A "$g/worktrees" 2>/dev/null)" ]] || continue
-    repo=$(dirname "$g"); labels=(); sel=""
     while IFS= read -r w; do
       [[ -n "$w" && -d "$w" ]] || continue
       b=$(git -C "$w" branch --show-current 2>/dev/null)
       l="$w │ ${b:-detached} · last commit $(git -C "$w" log -1 --format=%cs 2>/dev/null)"
       if ! st=$(git -C "$w" status --porcelain 2>/dev/null); then l+=" · ⚠ STATUS UNKNOWN"
       elif [[ -n "$st" ]]; then l+=" · ⚠ UNCOMMITTED CHANGES"
+      elif [[ -z "$(git -C "$w" for-each-ref --count=1 --contains HEAD refs/heads refs/remotes 2>/dev/null)" ]]; then l+=" · ⚠ COMMITS ON NO BRANCH"
       else sel+="${sel:+,}$l"; fi
       labels+=("$l")
-    done < <(git -C "$repo" worktree list --porcelain 2>/dev/null | awk '/^worktree /{sub(/^worktree /,""); print}' | tail -n +2)
-    (( ${#labels[@]} )) || continue
+    done < <(git -C "${g%/.git}" worktree list --porcelain 2>/dev/null | awk '/^worktree /{sub(/^worktree /,""); print}' | tail -n +2)
+  done
+  if (( ${#labels[@]} )); then
     while IFS= read -r l; do
       [[ -n "$l" ]] || continue; w=${l%% │*}
-      git -C "$repo" worktree remove --force --force "$w" </dev/null >/dev/null 2>&1 || echo "   !! could not remove $w"
-    done < <(pick "$repo: linked worktrees to delete (space toggles, enter confirms)" "$sel" "${labels[@]}")
-    git -C "$repo" worktree prune </dev/null >/dev/null 2>&1
-  done 3< <(find "$GH" -maxdepth 3 -type d -name .git -prune 2>/dev/null)
+      { common=$(wt_common "$w") && git -C "$common" worktree remove --force --force "$w" </dev/null >/dev/null 2>&1; } || echo "   !! could not remove $w"
+    done < <(pick "Linked worktrees to delete (space toggles, enter confirms)" "$sel" "${labels[@]}")
+    for g in "${repos[@]}"; do git -C "${g%/.git}" worktree prune </dev/null >/dev/null 2>&1; done
+  fi
 fi
 
 # --- orphaned agent worktree dirs git no longer tracks: checklist, all preselected ---
@@ -407,11 +425,12 @@ if [[ $ASK == 1 ]]; then
 fi
 
 # --- AI tool transcripts & logs older than 14 days (never DBs or Claude memory/) ---
-step "AI transcripts/logs >14d (Claude, Codex, OpenCode, T3)"
+step "AI transcripts/logs >14d (Claude, Codex, OpenCode), T3 Code diagnostic logs >3d"
 find "${HOME:?}/.claude/projects" -type d -name '*t3code-claude-title*' -prune -exec rm -rf {} + 2>/dev/null
-find "${HOME:?}/.claude/projects" -type f -name '*.jsonl' -mtime +14 -not -path '*/memory/*' -delete 2>/dev/null
-find "${HOME:?}/.codex/sessions" "${HOME:?}/.local/share/opencode/log" "${HOME:?}/.t3/userdata/logs" \
-     -type f -mtime +14 -delete 2>/dev/null
+find "${HOME:?}/.claude/projects" -type f \( -name '*.jsonl' -o -path '*/tool-results/*' \) -mtime +14 \
+     -not -path '*/memory/*' -delete 2>/dev/null
+find "${HOME:?}/.codex/sessions" "${HOME:?}/.local/share/opencode/log" -type f -mtime +14 -delete 2>/dev/null
+find "${HOME:?}/.t3/userdata/logs" -type f -mtime +3 -delete 2>/dev/null  # diagnostics, not transcripts
 find "${HOME:?}/.claude/projects" "${HOME:?}/.codex/sessions" -mindepth 1 -type d -empty -delete 2>/dev/null; sp
 
 # --- T3 Code: compact state DB (keeps all data) + Electron caches; only while T3 Code is closed ---
@@ -444,7 +463,7 @@ sp
 
 # --- real data, opt-in only (nothing preselected): iOS device backups, deleted users' archived homes ---
 if [[ $ASK == 1 ]]; then
-  data=()
+  data=(); STEP="Looking for iOS backups and deleted users"; spin_start  # du on big backups takes a while
   for b in "${HOME:?}/Library/Application Support/MobileSync/Backup/"*/; do  # needs Full Disk Access
     [[ -d "$b" ]] || continue; b=${b%/}
     n=$(plutil -extract "Device Name" raw -o - "$b/Info.plist" 2>/dev/null)
@@ -454,6 +473,7 @@ if [[ $ASK == 1 ]]; then
     while IFS= read -r u; do data+=("/Users/Deleted Users/$u │ archived home of a deleted user"); done \
       < <(sudo -n ls "/Users/Deleted Users" 2>/dev/null)
   fi
+  spin_stop; STEP=""
   if (( ${#data[@]} )); then
     while IFS= read -r l; do
       [[ -n "$l" ]] || continue; f=${l%% │*}
@@ -464,13 +484,15 @@ fi
 
 # --- deep (opt-in): project dependencies and build outputs ---
 if [[ $DEEP == 1 && -d "$GH" ]]; then
-  step "node_modules across ~/github (--deep)"
-  find "$GH" -type d -name node_modules -prune -exec rm -rf {} + 2>/dev/null; sp
-  step "Python .venv across ~/github (--deep)"
-  find "$GH" -type d -name .venv -prune -exec rm -rf {} + 2>/dev/null; sp
-  step "Rust target/ across ~/github (--deep, next to Cargo.toml)"
-  while IFS= read -r c; do rm -rf "$(dirname "$c")/target"; done \
-    < <(find "$GH" -name Cargo.toml -not -path '*/target/*' -not -path '*/node_modules/*' 2>/dev/null); sp
+  step "--deep: node_modules, Python .venv, Rust target/ (next to Cargo.toml) across ~/github"
+  while IFS= read -r p; do  # one pass; pruned dirs are not descended into
+    case $p in
+      */Cargo.toml) rm -rf "${p%/Cargo.toml}/target" ;;
+      */node_modules|*/.venv) rm -rf "$p" ;;
+    esac
+  done < <(find "$GH" \( -name node_modules -o -name .venv -o -name target -o -name .git \) -type d -prune -print \
+             -o -name Cargo.toml -print 2>/dev/null)
+  sp
 fi
 
 sp; disk
