@@ -38,7 +38,7 @@ for a in "$@"; do
   esac
 done
 
-sp()   { df -h /System/Volumes/Data 2>/dev/null | tail -1 | awk '{print "   -> "$4" free ("$5" used)"}'; }
+sp()   { df -H /System/Volumes/Data 2>/dev/null | tail -1 | awk '{print "   -> "$4" free ("$5" used)"}'; }
 have() { command -v "$1" >/dev/null 2>&1; }
 step() { printf '[%s]\n' "$1"; }
 # Run external tools with NO stdin, so nothing (e.g. Corepack's pnpm/yarn download
