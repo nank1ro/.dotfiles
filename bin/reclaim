@@ -125,7 +125,7 @@ reap() {
       JR[i]=1; mark 31 "${JN[i]} stopped without a status"; continue
     fi
     read -r rc end < "$RT/$i.rc"; dt=$(awk -v a="${JT[i]}" -v b="$end" 'BEGIN { printf "%.1f", b - a }'); JR[i]=1
-    if [[ $rc != 0 ]]; then mark 31 "${JN[i]} failed (exit $rc): $(tail -n 1 "$RT/$i.log" | cut -c1-100)"
+    if [[ $rc != 0 ]]; then mark 31 "${JN[i]} failed (exit $rc): $(tail -n 1 "$RT/$i.log" | cut -c1-500)"
     elif [[ ${JB[i]} == 1 ]]; then bgo+=$(printf '%s✓ %8s%s  %s (background)%s %ss%s' "$g" done "$z" "${JN[i]}" "$d" "$dt" "$z")$'\n'
     else grp+="${grp:+ · }${JN[i]} ${dt}s"; fi
   done
@@ -184,9 +184,12 @@ sp() {
 ASK=0; [[ -t 0 ]] && ASK=1  # checklists and questions need an interactive terminal
 # Drop keys typed while steps ran, so a stray Enter can't answer the next checklist or question.
 flush_input() { perl -MPOSIX=tcflush,TCIFLUSH -e 'tcflush(0, TCIFLUSH)' </dev/tty 2>/dev/null; }
+# ask ARGS...: gum on the terminal. Gum reads keys raw, so Ctrl-C reaches it as a key and it exits
+# 130 instead of signalling us; turn that back into SIGINT so on_int stops the run (also from subshells).
+ask() { gum "$@" </dev/tty; local rc=$?; (( rc == 130 )) && kill -INT $$; return $rc; }
 confirm() {
   flush_input
-  if [[ $UI == 1 ]]; then gum confirm --default=false "$1" </dev/tty
+  if [[ $UI == 1 ]]; then ask confirm --default=false "$1"
   else local a; read -r -p "$1 [y/N] " a </dev/tty || a=""; [[ $a == [yY]* ]]; fi
 }
 # rpath FILE: FILE's absolute path with symlinks resolved (realpath, or a readlink loop where it is missing).
@@ -219,7 +222,7 @@ pick() {
   if [[ $sel != "*" && -n $sel ]]; then
     IFS=, read -r -a s <<< "$sel"; sel=""; for i in "${s[@]}"; do sel+="${sel:+,}$(short "$i")"; done
   fi
-  if [[ $UI == 1 ]]; then flush_input; gum choose --no-limit --height 15 --header "$header" --selected "$sel" "${items[@]}" </dev/tty || true
+  if [[ $UI == 1 ]]; then flush_input; ask choose --no-limit --height 15 --header "$header" --selected "$sel" "${items[@]}" || true
   else { echo; echo "$header"; printf '   %s\n' "${items[@]}"; } >&2; confirm "Delete them?" && printf '%s\n' "${items[@]}"; fi |
   while IFS= read -r l; do [[ $l == "~/"* ]] && l="$HOME${l#\~}"; printf '%s\n' "$l"; done
 }
@@ -274,7 +277,7 @@ else printf '%s\n' "${banner[@]}"; fi
 mode=Clean
 if [[ $YES == 0 ]]; then
   if [[ $UI == 1 ]]; then
-    mode=$(gum choose --header "What should reclaim do?" "Clean" "Clean + system caches & logs (admin password)" "Abort" </dev/tty) || mode=Abort
+    mode=$(ask choose --header "What should reclaim do?" "Clean" "Clean + system caches & logs (admin password)" "Abort") || mode=Abort
   else
     read -r -p "[c]lean, clean + [s]ystem caches & logs (admin password), or [a]bort? " a </dev/tty || a=""
     case $a in [cC]*) mode=Clean ;; [sS]*) mode="Clean + system" ;; *) mode=Abort ;; esac
@@ -293,7 +296,7 @@ if [[ $YES == 0 ]]; then
   while :; do
     flush_input
     if [[ $UI == 1 ]]; then
-      a=$(gum input --header "Git folder (where your repos live)" --value "$(short "$GH")" </dev/tty) || { echo "Aborted."; exit 0; }
+      a=$(ask input --header "Git folder (where your repos live)" --value "$(short "$GH")") || { echo "Aborted."; exit 0; }
     else
       read -r -p "Git folder [$(short "$GH")]: " a </dev/tty || a=""; a=${a:-$(short "$GH")}
     fi
@@ -305,7 +308,8 @@ if [[ $YES == 0 ]]; then
   mkdir -p "${GHCONF%/*}" && printf '%s\n' "$GH" > "$GHCONF"
 fi
 # Keys typed during the run would echo into the progress output: hide them (gum prompts set their own mode).
-if [[ $UI == 1 && $ASK == 1 ]]; then STTY=$(stty -g </dev/tty 2>/dev/null) && stty -echo </dev/tty 2>/dev/null; fi
+# -icanon too: echo off with canonical mode on is what Ghostty/iTerm read as a password prompt (lock icon).
+if [[ $UI == 1 && $ASK == 1 ]]; then STTY=$(stty -g </dev/tty 2>/dev/null) && stty -echo -icanon </dev/tty 2>/dev/null; fi
 START_T=$SECONDS
 disk; START_FREE=$FREE
 # Slow, independent work runs behind all other steps (live footer) and is reaped before the summary.
@@ -340,7 +344,7 @@ if [[ $ASK == 1 && ! -e "$FDA_SKIP" ]] && fda_missing; then
   msg="Mail downloads and iOS backups need Full Disk Access for $term."
   flush_input
   if [[ $UI == 1 ]]; then
-    ans=$(gum choose --header "$msg" "Open System Settings" "Not now" "Don't ask again" </dev/tty) || ans="Not now"
+    ans=$(ask choose --header "$msg" "Open System Settings" "Not now" "Don't ask again") || ans="Not now"
   else
     echo "$msg"
     read -r -p "[o]pen System Settings, [n]ot now, [d]on't ask again? " a </dev/tty || a=""
@@ -377,9 +381,11 @@ have pnpm   && job 0 pnpm pnpm store prune
 have go     && job 0 go go clean -modcache  # module files are read-only, so rm alone can't remove them
 have conda  && job 0 conda conda clean -a -y
 # Docker: stopped containers, unused networks, ALL unused images, build cache; keeps volumes.
-# Skipped when OrbStack is installed but not running (any docker command would boot its VM).
+# Skipped when OrbStack is installed but not running (any docker command would boot its VM),
+# or when no daemon answers (OrbStack still starting, Docker Desktop quit).
 if have docker && ! { [[ -d /Applications/OrbStack.app ]] && ! pgrep -xq OrbStack; }; then
-  job 0 docker docker system prune -a -f
+  if docker info >/dev/null 2>&1; then job 0 docker docker system prune -a -f
+  else note "!! docker skipped (daemon not running)"; fi
 fi
 wait_group; sp
 
@@ -575,7 +581,7 @@ if [[ $ASK == 1 ]]; then
     while IFS= read -r l; do
       [[ -n "$l" ]] || continue; w=${l%% │*}
       { common=$(wt_common "$w") && git -C "$common" worktree remove --force --force "$w" </dev/null >/dev/null 2>&1; } || mark '38;5;208' "could not remove $w"
-    done < <(pick "Linked worktrees to delete (space toggles, enter confirms)" "$sel" "${labels[@]}")
+    done < <(pick "Linked worktrees to delete (x toggles, enter confirms)" "$sel" "${labels[@]}")
     for g in "${wtrepos[@]}"; do git -C "${g%/.git}" worktree prune </dev/null >/dev/null 2>&1; done
   fi
 fi
