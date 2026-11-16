@@ -146,6 +146,13 @@ it. No automatic Caveman hook or plugin is needed.
 Never use the em dash (U+2014) anywhere: code, comments, docs, commit messages,
 slides, or chat. Use a colon, comma, parentheses, or a new sentence instead.
 
+When writing for people (chat replies, reports, docs, comments, commit messages),
+aim for about 80% of ASD-STE100 Simplified Technical English: short sentences,
+active voice, one idea per sentence, common words, define technical terms on first
+use, ordered steps with one action each. Keep caveats and uncertainty explicit; do
+not simplify them away. A repository's own style guide takes precedence. Not for
+marketing or product copy.
+
 ## 7. Archived files
 
 Some files were moved to the external Toshiba drive (volume `Dev`). Before treating a
