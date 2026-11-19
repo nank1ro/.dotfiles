@@ -18,8 +18,8 @@ mouse-scroll-multiplier = 0.5
 # Keybindings: send special chars to NeoVim for CMD+ keys
 # These match the <Char-0xNN> mappings in nvim/lua/config/keymaps.lua
 keybind = super+s=text:\xC2\xAA
-keybind = super+x=text:\xAB
-keybind = super+b=text:\xAC
-keybind = super+period=text:\xAD
-keybind = super+o=text:\xAF
-keybind = super+slash=text:\xB0
+keybind = super+x=text:\xC2\xAB
+keybind = super+b=text:\xC2\xAC
+keybind = super+period=text:\xC2\xAD
+keybind = super+o=text:\xC2\xAF
+keybind = super+slash=text:\xC2\xB0
