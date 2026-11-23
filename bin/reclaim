@@ -2,7 +2,7 @@
 set -uo pipefail
 
 usage() { cat <<'EOF'
-reclaim — free disk by clearing regenerable dev caches & build artifacts.
+reclaim: free disk by clearing regenerable dev caches & build artifacts.
 
 Clears: npm/pnpm/yarn/bun/pub/gradle/cargo/go/CocoaPods/conda/NuGet/Hex/Cabal/
 Ivy caches, Ruby .gem archives, nvm/pyenv/rbenv/asdf downloads, ~/.cache,
@@ -488,7 +488,7 @@ if [[ $GHWALK == 1 && -d "$GH" ]]; then
   done < <(find "$GH" -maxdepth 4 -type d \( -name .git -o -name node_modules -o -name build -o -name .dart_tool \
              -o -name .venv -o -name target \) -prune -o -name pubspec.yaml -print0 2>/dev/null)
 fi; sp
-# download caches only — keep ~/.pub-cache/bin + global_packages (activated CLIs)
+# download caches only; keep ~/.pub-cache/bin + global_packages (activated CLIs)
 step "pub-cache downloads (keeps global CLIs)"
 rm -rf "${HOME:?}/.pub-cache/hosted" "${HOME:?}/.pub-cache/git" 2>/dev/null; sp
 step "Dart analyzer cache (~/.dartServer)"
@@ -514,11 +514,13 @@ step "gradle caches"; rm -rf "${HOME:?}/.gradle/caches" 2>/dev/null; sp
 
 # --- system caches & logs ---
 # Wipe ~/Library/Caches, but skip JetBrains/Android Studio dirs so their
-# LocalHistory (per-file IDE edit history — NOT regenerable) survives.
+# LocalHistory (per-file IDE edit history, NOT regenerable) survives.
 step "~/Library/Caches (keeping IDE dirs for LocalHistory)"
 # Homebrew is skipped: the background `brew cleanup --prune=all` already empties its own cache.
+# Chromium browsers' dirs are skipped: the browser cache step cleans them, only while that browser is closed.
 find "${HOME:?}/Library/Caches" -mindepth 1 -maxdepth 1 \
      ! -name JetBrains ! -name Google ! -name 'AndroidStudio*' ! -name Homebrew \
+     ! -name BraveSoftware ! -name 'Microsoft Edge' ! -name Vivaldi ! -name Chromium ! -name net.imput.helium \
      -exec rm -rf {} + 2>/dev/null; sp
 step "~/Library/Logs"
 find "${HOME:?}/Library/Logs" -mindepth 1 -maxdepth 1 ! -name Homebrew -exec rm -rf {} + 2>/dev/null; sp
@@ -584,7 +586,7 @@ plutil -lint "${prefs[@]}" 2>&1 >/dev/null | while IFS= read -r l; do  # failure
   f=${l%%: (*}; [[ -f "$f" ]] && rm -f "$f" 2>/dev/null
 done; sp
 
-# --- Trash (opted in — irreversible), incl. this user's trash on external drives ---
+# --- Trash (opted in, irreversible), incl. this user's trash on external drives ---
 step "Trash"; find "${HOME:?}/.Trash" /Volumes/*/.Trashes/"$(id -u)" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; sp
 
 # Git dirs of repos: those in the git folder (1-2 levels deep, incl. dot-dirs), the main repos of worktrees
