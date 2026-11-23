@@ -6,11 +6,17 @@ reclaim — free disk by clearing regenerable dev caches & build artifacts.
 
 Clears: npm/pnpm/yarn/bun/pub/gradle/cargo/go/CocoaPods/conda/NuGet/Hex/Cabal/
 Ivy caches, Ruby .gem archives, nvm/pyenv/rbenv/asdf downloads, ~/.cache, Flutter
-build artifacts, Dart analyzer cache, Xcode DerivedData + DeviceSupport,
+build artifacts, project dependencies and build outputs in your git folder
+(node_modules, Python .venv, Rust target/, CocoaPods Pods/, SwiftPM .build/;
+every project needs a reinstall afterwards), Dart analyzer cache, Xcode
+DerivedData + DeviceSupport,
 Homebrew old versions, unused Docker images/containers/build cache (keeps volumes),
 ~/Library/Caches + Logs, VS Code/Cursor/Windsurf, Slack and Discord caches (when
-closed), Raycast update downloads, Zed's npm cache, Mail
-downloads, broken preference files, the Trash (incl. external drives),
+closed), Raycast update downloads, Zed's npm cache, Google Updater downloads,
+Chromium-family browser caches (Chrome, Helium, Brave, Edge, Vivaldi, Arc and
+automation profiles in your git folder; only when that browser is closed),
+Wrangler bundle temp dirs (.wrangler/tmp, when wrangler is not running), Mail downloads, broken
+preference files, the Trash (incl. external drives),
 agent-reviews ledgers, OpenCode snapshots, Codex temp files, inactive Claude Code
 versions, T3 Code caches + state DB VACUUM (no data lost, when closed), and AI
 transcripts/logs older than 14 days. If you pick "Clean + system caches & logs"
@@ -28,7 +34,8 @@ whose program is gone, opt-in simulators/emulators (runtimes, devices, Android
 AVDs and system images; nothing ticked), and opt-in real data (iOS backups,
 Xcode archives, deleted users' homes).
 
-Never touches: source code, browser profiles, simulators unless ticked,
+Never touches: source code, browser data (logins, cookies, history, site
+storage, extensions), simulators unless ticked,
 installed CLI binaries (~/.cargo/bin, ~/.pub-cache/bin), or JetBrains/Android
 Studio Local History.
 
@@ -38,24 +45,22 @@ on first run; falls back to plain text when gum is unavailable or output is pipe
 Usage:
   reclaim            confirm, then clean
   reclaim -y         skip the start question, plain Clean (checklists still appear)
-  reclaim --deep     ALSO remove node_modules, Python .venv and Rust target/ in your git folder
 
 Asks for your git folder (where your repos live) each run; the last answer is the
 default (saved in ~/.config/reclaim/git-folder). -y uses the saved folder.
-                     (regenerable, but forces reinstall in ALL projects)
 EOF
 }
 
-YES=0; DEEP=0
+YES=0
 for a in "$@"; do
   case "$a" in
     -y|--yes)  YES=1 ;;
-    --deep)    DEEP=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option: $a (try --help)"; exit 1 ;;
   esac
 done
 
+tracked() { [[ -n $(git -C "$1" ls-files 2>/dev/null | head -1) ]]; }  # git tracks a file in DIR; never delete those
 have() { command -v "$1" >/dev/null 2>&1; }
 # Run external tools with NO stdin, so nothing (e.g. Corepack's pnpm/yarn download
 # prompt) can silently block the script waiting on an invisible confirmation.
@@ -258,12 +263,13 @@ XCODE_RUNNING=0; pgrep -xq Xcode && XCODE_RUNNING=1
 disk; START_FREE=$FREE
 banner=("reclaim · $(usage_line)" ""
   "Clears dev + language caches, build artifacts, unused Docker data (not volumes),"
+  "project dependencies in your git folder (node_modules, .venv, target/, Pods/, .build/),"
   "Xcode DerivedData/DeviceSupport, ~/Library/Caches & Logs, editor + app caches,"
   "Mail downloads, broken prefs, Trash, AI tool logs >14d, T3 Code caches + DB VACUUM."
+  "Browser caches (Chromium family + automation profiles in your git folder) when closed."
   "Optional (admin password): system icon/symbol caches and system logs."
   "Checklists: worktrees, login items, opt-in simulators/emulators, iOS backups, Xcode archives, deleted users."
-  "Keeps source, browsers, installed CLIs/toolchains, IDE history.")
-[[ $DEEP == 1 ]] && banner+=("--deep: also node_modules, .venv and Rust target/ in your git folder")
+  "Keeps source, browser data (logins, history), installed CLIs/toolchains, IDE history.")
 [[ $XCODE_RUNNING == 1 ]] && banner+=("" "!! Xcode is running, skipping DerivedData & DeviceSupport (quit Xcode to include).")
 # Plain styled lines, no box: printed output stays in the scrollback, and borders break when the
 # terminal re-wraps them on resize. Title bold cyan, "!!" warnings as an orange "!", the rest dimmed.
@@ -373,6 +379,24 @@ if [[ $SUDO == 1 ]]; then
   sp
 fi
 
+# --- project dependencies and build outputs (every project needs a reinstall afterwards);
+# before the package caches, so `pnpm store prune` also frees what these node_modules used ---
+if [[ -d "$GH" ]]; then
+  step "Project dependencies: node_modules, .venv, Rust target/, Pods/, SwiftPM .build/ in $(short "$GH")"
+  while IFS= read -r p; do  # one pass; pruned dirs are not descended into
+    case $p in
+      */Cargo.toml) p=${p%/Cargo.toml}/target ;;
+      */Podfile) p=${p%/Podfile}/Pods ;;
+      */Package.swift) p=${p%/Package.swift}/.build ;;
+      */node_modules|*/.venv) ;;
+      *) continue ;;  # pruned .git, target, Pods, .build: only removed via their manifest
+    esac
+    tracked "$p" || rm -rf "$p" 2>/dev/null  # never delete files git tracks
+  done < <(find "$GH" \( -name node_modules -o -name .venv -o -name target -o -name Pods -o -name .build -o -name .git \) \
+             -type d -prune -print -o \( -name Cargo.toml -o -name Podfile -o -name Package.swift \) -print 2>/dev/null)
+  sp
+fi
+
 # --- package managers: independent, so run concurrently (Homebrew already runs in the background) ---
 # yarn v1, CocoaPods and the Go build cache live in ~/Library/Caches, which a later step wipes.
 step "Package caches: npm, pnpm, Go modules, conda, Docker"
@@ -400,6 +424,17 @@ rm -rf "${HOME:?}/.bun/install/cache" "${HOME:?}/.yarn/berry/cache" \
        "${HOME:?}/.nvm/.cache" "${HOME:?}/.pyenv/cache" "${HOME:?}/.rbenv/cache" "${HOME:?}/.asdf/downloads" \
        "${HOME:?}/.gem/ruby/"*/cache "${HOME:?}/.rbenv/versions/"*/lib/ruby/gems/*/cache \
        "${HOME:?}/.local/share/mise/installs/ruby/"*/lib/ruby/gems/*/cache 2>/dev/null; sp
+
+# --- Wrangler bundle output (.wrangler/tmp); .wrangler/state is local D1/KV/R2 data and stays ---
+step "Wrangler .wrangler/tmp in $(short "$GH") (when wrangler is not running)"
+if pgrep -f wrangler >/dev/null; then  # a running `wrangler dev` keeps its bundles in tmp
+  note "!! wrangler is running, skipped .wrangler/tmp (stop it to include)"
+elif [[ -d "$GH" ]]; then
+  while IFS= read -r -d '' p; do
+    find "$p" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null
+  done < <(find "$GH" -maxdepth 5 -type d \( -name .git -o -name node_modules -o -name .venv -o -name target \) -prune \
+             -o -type d -path '*/.wrangler/tmp' -print0 2>/dev/null)
+fi; sp
 
 # --- Dart / Flutter ---
 step "Flutter build/.dart_tool in $(short "$GH") (pubspec-guarded)"
@@ -455,14 +490,37 @@ done; sp
 # --- app caches and downloaded updates in Application Support ---
 AS="${HOME:?}/Library/Application Support"
 app_closed() { ! pgrep -f "$1[^/]*\.app/" >/dev/null || { note "!! $1 is running, skipped (quit it to include)"; return 1; }; }
-step "App caches: Slack, Discord old versions + updates, Raycast updates, Zed npm cache"
+step "App caches: Slack, Discord old versions + updates, Raycast + Google Updater downloads, Zed npm cache"
 [[ -d "$AS/Slack" ]] && app_closed Slack && rm -rf "$AS/Slack/Service Worker" "$AS/Slack/logs" 2>/dev/null
 if [[ -d "$AS/discord" ]] && app_closed Discord; then  # keep the newest app-* version
   rm -rf "$AS/discord/download" 2>/dev/null
   ls -d "$AS/discord/"app-* 2>/dev/null | sort -V | sed '$d' | while IFS= read -r v; do rm -rf "$v" 2>/dev/null; done
 fi
 rm -rf "$AS/com.raycast.macos/Updates/"* "$AS/Zed/node/cache" 2>/dev/null  # update downloads, npm cache
+rm -rf "$AS/Google/GoogleUpdater/crx_cache/"* 2>/dev/null  # Chrome/Google installer downloads
 sp
+
+# --- Chromium-family caches: HTTP, code, GPU/shader and component downloads only; logins, cookies,
+# history, site storage and extensions stay. A user-data dir holds "Local State"; while a browser uses
+# it, SingletonLock links to "<host>-<pid>". Crashes leave the link behind, so a dead pid means closed.
+chromium_caches() {  # DIR; fails (and deletes nothing) while a live browser holds DIR
+  local lock; lock=$(readlink "$1/SingletonLock" 2>/dev/null) && kill -0 "${lock##*-}" 2>/dev/null && return 1
+  rm -rf "$1/"{component_crx_cache,extensions_crx_cache,GPUPersistentCache,GraphiteDawnCache,GrShaderCache,ShaderCache} \
+         "$1/"{Default,"Profile "*,"Guest Profile","System Profile"}/{Cache,"Code Cache",GPUCache,DawnGraphiteCache,DawnWebGPUCache} \
+         2>/dev/null
+  return 0
+}
+step "Browser caches: Chromium family + automation profiles in $(short "$GH") (closed ones)"
+for d in "$AS/"{Google/Chrome,"Google/Chrome Beta",Chromium,BraveSoftware/Brave-Browser,"Microsoft Edge",Vivaldi,net.imput.helium,Arc/"User Data"} \
+         "${HOME:?}/.claude/chrome-helium-profile"; do
+  [[ -f "$d/Local State" ]] || continue
+  chromium_caches "$d" || note "!! $(short "$d") is in use, skipped (quit that browser to include)"
+done
+if [[ -d "$GH" ]]; then  # e.g. Puppeteer/Playwright profiles that a project keeps
+  while IFS= read -r -d '' f; do tracked "${f%/*}" || chromium_caches "${f%/*}"; done \
+    < <(find "$GH" -type d \( -name .git -o -name node_modules -o -name .venv -o -name target \) -prune \
+           -o -type f -name 'Local State' -print0 2>/dev/null)
+fi; sp
 
 # Copies Mail saved when attachments were opened; originals stay in Mail. Needs Full Disk Access.
 step "Mail downloads"
@@ -725,18 +783,6 @@ if [[ $ASK == 1 ]]; then
   fi
 fi
 
-# --- deep (opt-in): project dependencies and build outputs ---
-if [[ $DEEP == 1 && -d "$GH" ]]; then
-  step "--deep: node_modules, Python .venv, Rust target/ (next to Cargo.toml) in $(short "$GH")"
-  while IFS= read -r p; do  # one pass; pruned dirs are not descended into
-    case $p in
-      */Cargo.toml) rm -rf "${p%/Cargo.toml}/target" 2>/dev/null ;;
-      */node_modules|*/.venv) rm -rf "$p" 2>/dev/null ;;
-    esac
-  done < <(find "$GH" \( -name node_modules -o -name .venv -o -name target -o -name .git \) -type d -prune -print \
-             -o -name Cargo.toml -print 2>/dev/null)
-  sp
-fi
 
 bg_running && { step "Finishing background jobs"; while bg_running; do sleep 0.2; done; }
 sp; reap; disk
