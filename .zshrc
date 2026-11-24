@@ -227,8 +227,14 @@ if [[ -z "$_FORGE_THEME_LOADED" ]]; then
 fi
 # <<< forge initialize <<<
 
-# shallow single-branch clone: gshallow <url> [branch=main]
-gshallow() { git clone --branch "${2:-main}" --depth 1 --single-branch "$1"; }
+# shallow single-branch clone: gshallow <url> [branch]
+gshallow() {
+    local -a branch_args=()
+    if [[ -n ${2:-} ]]; then
+        branch_args=(--branch "$2")
+    fi
+    git clone "${branch_args[@]}" --depth 1 --single-branch "$1"
+}
 
 # opencode
 export PATH=/Users/ale/.opencode/bin:$PATH
