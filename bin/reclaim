@@ -85,8 +85,11 @@ gb() { awk -v b="$1" 'BEGIN { printf "%.1f GB", (b > 0 ? b : 0) / 1e9 }'; }
 # df's size and avail for the Data volume are the container's total and free space.
 # Sets TOTAL and FREE (bytes), FREE_H (e.g. "86.6 GB") and FREE_PCT.
 disk() {
-  read -r TOTAL FREE < <(df -k /System/Volumes/Data | awk 'NR == 2 { printf "%.0f %.0f\n", $2 * 1024, $4 * 1024 }')
-  FREE_H=$(gb "$FREE"); FREE_PCT=$(( ${TOTAL:-0} ? (FREE * 100 + TOTAL / 2) / TOTAL : 0 ))
+  read -r TOTAL FREE FREE_H < <(df -k /System/Volumes/Data | awk 'NR == 2 {
+    avail = sprintf("%.0f", $4 * 1024)
+    printf "%.0f %s %.1f GB\n", $2 * 1024, avail, (avail + 0 > 0 ? avail : 0) / 1e9
+  }') || FREE_H=$(gb 0)
+  FREE_PCT=$(( ${TOTAL:-0} ? (FREE * 100 + TOTAL / 2) / TOTAL : 0 ))
 }
 usage_line() { echo "$FREE_H free ($FREE_PCT% free, $((100 - FREE_PCT))% used)"; }
 
@@ -155,7 +158,8 @@ reap() {
 # nothing wraps; the first frame is drawn here so spin_stop always has FH lines to clear.
 spin_start() {
   [[ $UI == 1 ]] || return 0
-  local cols i n=${#JP[@]} fb=(); cols=$(stty size </dev/tty 2>/dev/null | awk '{ print $2 }')
+  local cols i n=${#JP[@]} fb=()
+  read -r _ cols < <(stty size </dev/tty 2>/dev/null)
   [ "${cols:-0}" -gt 0 ] 2>/dev/null || cols=80  # empty/0/non-numeric = unknown
   for ((i = 0; i < n; i++)); do [[ ${JB[i]} == 1 && ! -e "$RT/$i.rc" ]] && fb+=("$i"); done
   FH=$(( ${#fb[@]} + 1 ))
@@ -242,7 +246,7 @@ inuse_paths() {
   done
   l=$(cd / && /usr/sbin/lsof -a -u "$(id -u)" -d cwd -Fcn +c 0 2>/dev/null) || return 1  # from /: not our own dir
   while IFS= read -r f; do INUSE+=("$f"); done < <(printf '%s\n' "$l" | awk '/^c/ { c = substr($0, 2) }
-    /^n/ && c !~ /^-?(zsh|bash|sh|dash|fish|ksh|tcsh|nu|login|tmux|screen)$/ { print substr($0, 2) }')
+    /^n/ && c !~ /^-?(zsh|bash|sh|dash|fish|ksh|tcsh|nu|login|tmux|screen)$/ && !seen[$0]++ { print substr($0, 2) }')
 }
 short() { case $1 in "$HOME"/*) printf '%s\n' "~${1#"$HOME"}" ;; *) printf '%s\n' "$1" ;; esac; }
 # pick HEADER SELECTED ITEM...: prints the chosen items, one per line. Items are "path │ details",
@@ -411,6 +415,33 @@ if [[ $SUDO == 1 ]]; then
   sp
 fi
 
+# Scan contiguous groups of immediate children in parallel and emit results in find order.
+find_project_paths() {
+  local root=$1 path paths=() group_size; shift
+  if [[ $OSTYPE != darwin* || ! $(command -v find) -ef /usr/bin/find ]]; then
+    find "$root" "$@" 2>/dev/null
+    return
+  fi
+  # Apply the original tests at the root so its matches and prunes still count.
+  while IFS= read -r -d '' path; do
+    if [[ $path == "$root" ]]; then printf '%s\0' "$path"
+    else paths+=("$path"); fi
+  done < <(/usr/bin/find "$root" -maxdepth 1 \( -depth 0 \( "$@" \) -o ! -depth 0 -print0 \) 2>/dev/null)
+  (( ${#paths[@]} )) || return 0
+  group_size=$(( (${#paths[@]} + 3) / 4 ))
+  cat <(find_project_group "$#" "$@" "${paths[@]:0:group_size}") \
+      <(find_project_group "$#" "$@" "${paths[@]:group_size:group_size}") \
+      <(find_project_group "$#" "$@" "${paths[@]:group_size*2:group_size}") \
+      <(find_project_group "$#" "$@" "${paths[@]:group_size*3:group_size}")
+}
+find_project_group() {
+  local predicates=$1; shift
+  (( $# > predicates )) || return 0
+  # Batch starting paths ahead of the tests without exceeding argument limits.
+  printf '%s\0' "${@:predicates+1}" |
+    /usr/bin/xargs -0 -J % /usr/bin/find % "${@:1:predicates}" 2>/dev/null
+}
+
 # --- project dependencies and build outputs (every project needs a reinstall afterwards);
 # before the package caches, so `pnpm store prune` also frees what these node_modules used ---
 # A dependency dir is kept when an in-use path (inuse_paths) is in its project: the git top level, else its parent.
@@ -435,8 +466,8 @@ if [[ -d "$GH" ]]; then
       proj=$(git -C "${p%/*}" rev-parse --show-toplevel 2>/dev/null) || proj=$(cd "${p%/*}" && pwd -P)
       if ! inuse "$proj"; then rm -rf "$p" 2>/dev/null
       elif [[ $kdeps != *$'\n'"$proj"$'\n'* ]]; then kdeps+="$proj"$'\n'; note "kept deps of $(short "$proj") (in use)"; fi
-    done < <(find "$GH" \( -name node_modules -o -name .venv -o -name target -o -name Pods -o -name .build -o -name .git \) \
-               -type d -prune -print0 -o \( -name Cargo.toml -o -name Podfile -o -name Package.swift \) -print0 2>/dev/null)
+    done < <(find_project_paths "$GH" \( -name node_modules -o -name .venv -o -name target -o -name Pods -o -name .build -o -name .git \) \
+               -type d -prune -print0 -o \( -name Cargo.toml -o -name Podfile -o -name Package.swift \) -print0)
   fi
   sp
 fi
@@ -476,8 +507,8 @@ if pgrep -f wrangler >/dev/null; then  # a running `wrangler dev` keeps its bund
 elif [[ $GHWALK == 1 && -d "$GH" ]]; then
   while IFS= read -r -d '' p; do
     find "$p" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null
-  done < <(find "$GH" -type d \( -name .git -o -name node_modules -o -name .venv -o -name target \) -prune \
-             -o -type d -path '*/.wrangler/tmp' -print0 2>/dev/null)
+  done < <(find_project_paths "$GH" -type d \( -name .git -o -name node_modules -o -name .venv -o -name target \) -prune \
+             -o -type d -path '*/.wrangler/tmp' -print0)
 fi; sp
 
 # --- Dart / Flutter ---
@@ -571,8 +602,8 @@ if [[ $GHWALK == 1 && -d "$GH" ]]; then  # e.g. Puppeteer/Playwright profiles th
   while IFS= read -r -d '' f; do
     tracked "${f%/*}" || chromium_caches "${f%/*}" || note "kept $(short "${f%/*}") (a running browser uses it)"
   done \
-    < <(find "$GH" -type d \( -name .git -o -name node_modules -o -name .venv -o -name target \) -prune \
-           -o -type f -name 'Local State' -print0 2>/dev/null)
+    < <(find_project_paths "$GH" -type d \( -name .git -o -name node_modules -o -name .venv -o -name target \) -prune \
+           -o -type f -name 'Local State' -print0)
 fi; sp
 
 # Copies Mail saved when attachments were opened; originals stay in Mail. Needs Full Disk Access.
@@ -630,6 +661,7 @@ t3db="${HOME:?}/.t3/userdata/statev2.sqlite" t3bad=0
 t3wt=$(sqlite3 "file:$t3db?mode=ro" "SELECT json_extract(payload_json, '\$.worktreePath') || char(9) || COALESCE(NULLIF(json_extract(payload_json, '\$.title'), ''), 'untitled') FROM orchestration_v2_projection_threads WHERE thread_id NOT LIKE 'thread:provider%' AND deleted_at IS NULL AND archived_at IS NULL AND json_extract(payload_json, '\$.worktreePath') IS NOT NULL" 2>/dev/null) || { [[ -e $t3db ]] && t3bad=1; }
 t3thread() {
   if ((t3bad)); then echo 'unknown (T3 Code database unreadable)'; return; fi
+  [[ -n "$t3wt" ]] || return 0
   printf '%s\n' "$t3wt" | awk -F'\t' -v w="$1" '$1 == w { print $2; exit }'
 }
 
@@ -642,8 +674,8 @@ recent() {  # yes: file changed in 14d; no: scan clean, none; unknown: scan fail
 step "Claude/T3 Code/Codex worktrees untouched >14d (clean, commits on a branch)"
 kept=()
 while IFS= read -r -u 3 w; do
-  common=$(wt_common "$w") || continue
   [[ -z "$(t3thread "$w")" ]] || continue  # an open T3 Code thread still uses it
+  common=$(wt_common "$w") || continue
   [[ $(recent "$w") == no ]] || continue
   st=$(git -C "$w" status --porcelain 2>/dev/null) || { note "!! kept (git status failed): $w"; kept+=("$w │ git status failed"); continue; }
   [[ -z "$st" ]] || { note "!! kept (uncommitted changes): $w"; kept+=("$w │ uncommitted changes"); continue; }
