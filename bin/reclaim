@@ -6,7 +6,8 @@ reclaim: free disk by clearing regenerable dev caches & build artifacts.
 
 Clears: npm/pnpm/yarn/bun/pub/gradle/cargo/go/CocoaPods/conda/NuGet/Hex/Cabal/
 Ivy caches, Ruby .gem archives, nvm/pyenv/rbenv/asdf downloads, ~/.cache,
-Flutter build artifacts, project dependencies and build outputs in your git
+Flutter build artifacts (also in agent worktrees; skipped while a program
+works in the project), project dependencies and build outputs in your git
 folder (node_modules, Python .venv, Rust target/, CocoaPods Pods/, SwiftPM
 .build/; every project needs a reinstall afterwards), Dart analyzer cache,
 Xcode DerivedData + DeviceSupport, Homebrew old versions, unused Docker
@@ -348,7 +349,7 @@ fi
 # /, $HOME or a folder above it (compared as physical paths) would sweep every project and tool on the disk: no project cleanup then.
 GHWALK=0; GHR=$(cd "$GH" 2>/dev/null && pwd -P) && HR=$(cd "$HOME" 2>/dev/null && pwd -P) && [[ -n $GHR && -n $HR ]] && GHR=${GHR//\/\//\/} && case "$HR/" in "${GHR%/}/"*) ;; *) GHWALK=1 ;; esac
 # Before any background job starts, whose working dir would count as in use.
-INUSE=(); INUSE_OK=0; [[ $GHWALK == 1 ]] && inuse_paths && INUSE_OK=1
+INUSE=(); INUSE_OK=0; inuse_paths && INUSE_OK=1  # agent worktrees need it even without the git-folder walk
 # Keys typed during the run would echo into the progress output: hide them (gum prompts set their own mode).
 # -icanon too: echo off with canonical mode on is what Ghostty/iTerm read as a password prompt (lock icon).
 if [[ $UI == 1 && $ASK == 1 ]]; then STTY=$(stty -g </dev/tty 2>/dev/null) && stty -echo -icanon </dev/tty 2>/dev/null; fi
@@ -512,11 +513,20 @@ elif [[ $GHWALK == 1 && -d "$GH" ]]; then
 fi; sp
 
 # --- Dart / Flutter ---
-step "Flutter build/.dart_tool in $(short "$GH") (pubspec-guarded)"
-if [[ $GHWALK == 1 && -d "$GH" ]]; then
+# In the git folder and in agent worktrees; a project in use keeps them (a running `flutter test` reads build/).
+fl_roots=(); [[ $GHWALK == 1 && -d "$GH" ]] && fl_roots+=("$GH")
+for d in "$GH"/*/.claude/worktrees/*/; do [[ -d $d ]] && fl_roots+=("${d%/}"); done
+for d in "${HOME:?}"/.t3/worktrees/*/*/ "${HOME:?}"/.codex/worktrees/*/*/; do [[ -d $d ]] && fl_roots+=("${d%/}"); done
+step "Flutter build/.dart_tool in $(short "$GH") + agent worktrees (pubspec-guarded, skips projects in use)"
+if (( ${#fl_roots[@]} )) && [[ $INUSE_OK != 1 ]]; then note "!! could not list running programs (lsof): skipped Flutter builds"
+elif (( ${#fl_roots[@]} )); then
+  kfl=$'\n'
   while IFS= read -r -d '' p; do
-    d=${p%/*}; [[ -e "$d/build" || -e "$d/.dart_tool" ]] && rm -rf "$d/build" "$d/.dart_tool" 2>/dev/null
-  done < <(find "$GH" -maxdepth 4 -type d \( -name .git -o -name node_modules -o -name build -o -name .dart_tool \
+    d=${p%/*}; [[ -e "$d/build" || -e "$d/.dart_tool" ]] || continue
+    proj=$(git -C "$d" rev-parse --show-toplevel 2>/dev/null) || proj=$(cd "$d" && pwd -P)
+    if ! inuse "$proj"; then rm -rf "$d/build" "$d/.dart_tool" 2>/dev/null
+    elif [[ $kfl != *$'\n'"$proj"$'\n'* ]]; then kfl+="$proj"$'\n'; note "kept Flutter build of $(short "$proj") (in use)"; fi
+  done < <(find "${fl_roots[@]}" -maxdepth 4 -type d \( -name .git -o -name node_modules -o -name build -o -name .dart_tool \
              -o -name .venv -o -name target \) -prune -o -name pubspec.yaml -print0 2>/dev/null)
 fi; sp
 # download caches only; keep ~/.pub-cache/bin + global_packages (activated CLIs)
